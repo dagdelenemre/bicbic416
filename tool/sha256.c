@@ -52,6 +52,10 @@ void sha256_init(sha256_ctx *c)
 
 void sha256_update(sha256_ctx *c, const void *data, size_t len)
 {
+    /* Boş girdi (data NULL olabilir): memcpy'ye NULL vermek uzunluk 0 olsa bile
+     * tanımsız davranıştır; Linux'ta UBSan bunu yakalar. */
+    if (len == 0)
+        return;
     const uint8_t *p = data;
     c->total += len;
     if (c->used) {
@@ -105,7 +109,8 @@ void hmac_sha256_init(hmac_sha256_ctx *c, const void *key, size_t key_len)
     if (key_len > SHA256_BLOCK)
         sha256(key, key_len, k);
     else
-        memcpy(k, key, key_len);
+        if (key_len)
+            memcpy(k, key, key_len);
 
     for (int i = 0; i < SHA256_BLOCK; i++) pad[i] = k[i] ^ 0x36;
     sha256_init(&c->inner);
