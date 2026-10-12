@@ -3,6 +3,31 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr-TR/1.1.0/) kurallarını,
 sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarını izler.
 
+## [0.2.0] — 2026-10-12
+
+### Eklenenler
+
+- **BicBic-Hash:** BicBic416'dan Miyaguchi–Preneel yapısıyla türetilen 416 bitlik
+  (52 bayt) özet fonksiyonu (SPEC.md §12)
+  - C API: `bb416_hash()` ve akışlı kullanım için `bb416_hash_init/update/final`
+  - `bicbic hash` komutu
+  - Web sayfasında Hash bölümü
+- **İsteğe bağlı iki katmanlı şifreleme:** BicBic416-CTR'nin üstüne bağımsız anahtarlı
+  ChaCha20 (RFC 8439) katmanı. Programda `bicbic sifrele -2`, web sayfasında bir kutucuk.
+- HKDF-SHA256 (RFC 5869) ve ChaCha20 uygulamaları, OpenSSL çıktısıyla doğrulanan testlerle
+
+### Değişenler
+
+- **Dosya ve metin biçimi sürüm 2:** Ek yük 102 bayttan **36 bayta** indi.
+  - Nonce'lar kaldırıldı; her dosya rastgele tuz sayesinde zaten kendine özgü anahtar alıyor.
+  - Etiket 16 bayta indirildi.
+  - Yineleme sayısı 2 baytta saklanıyor ve artık 1000'in katı olmalı.
+  - Sürüm 1 dosyaları açılmaya devam ediyor.
+- **Anahtar türetme:** PBKDF2 artık tek bir 32 baytlık ana sır üretiyor; anahtarlar
+  HKDF ile bundan türetiliyor. Şifreleme ve çözme yaklaşık 3 kat hızlandı. Her parola
+  tahmini yine 600 000 yineleme gerektirdiği için parola tahminine karşı koruma aynı.
+- Dosya aracının parça boyutu, hem 52'nin hem 64'ün katı olacak şekilde 64 896 bayt yapıldı.
+
 ## [0.1.0] — 2026-10-12
 
 İlk sürüm.

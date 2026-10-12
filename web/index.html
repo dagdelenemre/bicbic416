@@ -57,6 +57,15 @@
   details { margin-top: 4px; font-size: 14px; color: var(--muted); }
   details .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
   footer { color: var(--muted); font-size: 13px; margin-top: 20px; }
+  footer a { color: inherit; }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; font-size: 15px; margin: 0 0 14px; cursor: pointer; }
+  .check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+  .check b { font-weight: 600; }
+  .card + .card { margin-top: 20px; }
+  h2 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .card .sub { margin-bottom: 14px; font-size: 15px; }
+  #hout { min-height: 0; height: auto; resize: none; overflow-wrap: anywhere; }
+  .note { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
   @media (max-width: 480px) { details .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -84,6 +93,12 @@
       <label for="input">Girdi <span class="hint">— şifrelenecek metin veya çözülecek şifreli metin</span></label>
       <textarea id="input" spellcheck="false" placeholder="Metni buraya yazın veya yapıştırın"></textarea>
     </div>
+
+    <label class="check">
+      <input id="layers2" type="checkbox">
+      <span><b>İki katman</b> <span class="hint">— BicBic416'nın üstüne bağımsız bir ChaCha20 katmanı;
+        biri kırılsa diğeri korur. Çözerken otomatik algılanır.</span></span>
+    </label>
 
     <div class="actions">
       <button id="enc" class="primary" type="button">Şifrele</button>
@@ -118,8 +133,26 @@
     </details>
   </div>
 
+  <div class="card">
+    <h2>BicBic-Hash</h2>
+    <p class="sub">Metnin 416 bitlik parmak izi. Aynı metin her zaman aynı izi verir; tek harf değişse iz tamamen değişir. Geri çevrilemez.</p>
+    <div class="field">
+      <label for="hin">Metin</label>
+      <textarea id="hin" spellcheck="false" placeholder="Parmak izi alınacak metni yazın"></textarea>
+    </div>
+    <div class="field">
+      <label for="hout">Hash <span class="hint">— 52 bayt, 104 onaltılık karakter</span></label>
+      <textarea id="hout" class="mono" rows="2" readonly></textarea>
+    </div>
+    <div class="actions">
+      <button id="hcopy" type="button">Kopyala</button>
+    </div>
+    <p class="note">Deneyseldir. Parola saklama veya dijital imza gibi işler için SHA-256 / SHA-3 kullanın.</p>
+  </div>
+
   <footer>
-    BicBic416 · 416-bit blok · CTR modu + HMAC-SHA256 · PBKDF2 ile anahtar türetme
+    BicBic416 · 416-bit blok · CTR + isteğe bağlı ChaCha20 · HMAC-SHA256 · PBKDF2 + HKDF · BicBic-Hash ·
+    <a href="https://github.com/dagdelenemre/bicbic416">Kaynak kod</a>
   </footer>
 </main>
 

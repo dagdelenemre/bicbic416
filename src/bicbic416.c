@@ -464,3 +464,94 @@ int bb416_ctr_xor(const bb416_ctx *ctx, const uint8_t nonce[BB416_NONCE_BYTES],
     secure_zero(ks, sizeof ks);
     return BB416_OK;
 }
+
+/* ---- BicBic-Hash (SPEC.md §12) -----------------------------------------
+ *
+ * Miyaguchi–Preneel: h ← E_h(m) ⊕ m ⊕ h. Zincirleme değeri bir sonraki bloğun
+ * şifreleme anahtarı olur (anahtar ve blok ikisi de 52 bayt). Merkle–Damgård
+ * dolgusu, ardından sabit bir son blokla bir kez daha sıkıştırma: çıktı son
+ * zincirleme değerini doğrudan açığa çıkarmaz, böylece uzunluk uzatma saldırısı
+ * engellenir.
+ */
+#define HASH_ROUNDS 16
+
+/* IV = E_0(0): sıfır anahtarla (R = 16) sıfır bloğun şifresi. Keyfi seçilmiş
+ * bir sabit değil ("kolumda bir şey yok" sabiti); test_hash bunu doğrular. */
+static const uint8_t HASH_IV[BB416_HASH_BYTES] = {
+    0x09, 0xef, 0x2c, 0xa3, 0xc1, 0xec, 0x50, 0xf7, 0x03, 0x28, 0x54, 0x29, 0x84,
+    0xb6, 0xc6, 0x05, 0x18, 0xb6, 0x12, 0x71, 0x85, 0x93, 0xba, 0x45, 0x63, 0xa6,
+    0x94, 0xd4, 0xe4, 0x45, 0x05, 0x32, 0xf2, 0xe2, 0xca, 0x64, 0x0f, 0xc3, 0x54,
+    0x5c, 0x3d, 0x35, 0x6b, 0x0e, 0x6e, 0xd2, 0x0c, 0x27, 0xda, 0x7b, 0x97, 0x04,
+};
+
+/* Son blok: ASCII "BicBic-Hash/son", geri kalanı sıfır. */
+static const uint8_t HASH_FINAL[BB416_BLOCK_BYTES] = {
+    'B', 'i', 'c', 'B', 'i', 'c', '-', 'H', 'a', 's', 'h', '/', 's', 'o', 'n',
+};
+
+static void hash_compress(uint8_t h[BB416_HASH_BYTES], const uint8_t m[BB416_BLOCK_BYTES])
+{
+    bb416_ctx ctx;
+    uint8_t e[BB416_BLOCK_BYTES];
+    bb416_init(&ctx, h, HASH_ROUNDS);
+    bb416_encrypt_block(&ctx, m, e);
+    for (int i = 0; i < BB416_BLOCK_BYTES; i++)
+        h[i] ^= e[i] ^ m[i];
+    bb416_wipe(&ctx);
+    secure_zero(e, sizeof e);
+}
+
+void bb416_hash_init(bb416_hash_ctx *c)
+{
+    assert(c);
+    memcpy(c->h, HASH_IV, sizeof c->h);
+    c->used = 0;
+    c->total = 0;
+}
+
+void bb416_hash_update(bb416_hash_ctx *c, const void *data, size_t len)
+{
+    assert(c && (data || len == 0));
+    const uint8_t *p = data;
+    c->total += len;
+    while (len) {
+        size_t take = BB416_BLOCK_BYTES - c->used;
+        if (take > len) take = len;
+        memcpy(c->buf + c->used, p, take);
+        c->used += take;
+        p += take;
+        len -= take;
+        if (c->used == BB416_BLOCK_BYTES) {
+            hash_compress(c->h, c->buf);
+            c->used = 0;
+        }
+    }
+}
+
+/* Dolgu: 0x80, sıfırlar, son 8 bayt mesajın bit uzunluğu (little-endian). */
+void bb416_hash_final(bb416_hash_ctx *c, uint8_t out[BB416_HASH_BYTES])
+{
+    assert(c && out);
+    uint64_t bits = c->total * 8u;
+    c->buf[c->used++] = 0x80;
+    if (c->used > BB416_BLOCK_BYTES - 8) {
+        memset(c->buf + c->used, 0, BB416_BLOCK_BYTES - c->used);
+        hash_compress(c->h, c->buf);
+        c->used = 0;
+    }
+    memset(c->buf + c->used, 0, BB416_BLOCK_BYTES - 8 - c->used);
+    for (int i = 0; i < 8; i++)
+        c->buf[BB416_BLOCK_BYTES - 8 + i] = (uint8_t)(bits >> (8 * i));
+    hash_compress(c->h, c->buf);
+    hash_compress(c->h, HASH_FINAL);
+    memcpy(out, c->h, BB416_HASH_BYTES);
+    secure_zero(c, sizeof *c);
+}
+
+void bb416_hash(const void *data, size_t len, uint8_t out[BB416_HASH_BYTES])
+{
+    bb416_hash_ctx c;
+    bb416_hash_init(&c);
+    bb416_hash_update(&c, data, len);
+    bb416_hash_final(&c, out);
+}

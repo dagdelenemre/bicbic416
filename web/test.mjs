@@ -1,9 +1,14 @@
-// JS uygulamasını C uygulamasına karşı doğrular:
+// JS uygulamasını C uygulamasına ve bağımsız referanslara karşı doğrular:
 //  1. tests/test_kat.c'deki tüm sabit vektörler (blok, zincir, CTR)
-//  2. JS ile şifrelenen metin `bicbic coz` ile, `bicbic sifrele` çıktısı JS ile açılır
-//  3. yanlış anahtar ve değiştirilmiş metin reddedilir
+//  2. tests/test_hash.c'deki BicBic-Hash vektörleri
+//  3. ChaCha20, Node'un OpenSSL uygulamasıyla aynı
+//  4. JS ile şifrelenen metin `bicbic coz` ile, `bicbic sifrele` çıktısı JS ile açılır
+//     (tek ve iki katman); `bicbic hash` = JS hash
+//  5. sürüm 1 örnek dosyası açılır
+//  6. yanlış anahtar ve değiştirilmiş metin reddedilir
 // Kullanım: node web/test.mjs   (önce: make tool)
 import { execFileSync } from "node:child_process";
+import { createCipheriv } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -41,7 +46,38 @@ const joined = (name) => {
 }
 console.log(`KAT: ${checks - fails}/${checks} vektör C ile aynı`);
 
-// 2. Komut satırı aracıyla karşılıklı uyumluluk
+// 2. BicBic-Hash: tests/test_hash.c'deki vektörler
+{
+  const hsrc = readFileSync(path.join(root, "tests/test_hash.c"), "utf8");
+  const two = String.raw`"([0-9a-f]{52})"\s*"([0-9a-f]{52})"`;
+  let n = 0;
+  for (const m of hsrc.matchAll(new RegExp(String.raw`\{\s*"([^"]*)",\s*(?:\d+|sizeof\([^)]*\) - 1),\s*` + two, "g"))) {
+    check(hex(S.hash(m[1])) === m[2] + m[3], `hash ${JSON.stringify(m[1])}`);
+    n++;
+  }
+  const pat = Uint8Array.from({ length: 1000 }, (_, i) => (i * 7 + 3) & 255);
+  for (const m of hsrc.matchAll(new RegExp(String.raw`\{\s*(\d+),\s*` + two, "g"))) {
+    check(hex(S.hash(pat.subarray(0, +m[1]))) === m[2] + m[3], `hash desen ${m[1]}`);
+    n++;
+  }
+  check(n === 16, `16 hash vektörü bekleniyordu, ${n} bulundu`);
+  console.log(`BicBic-Hash: ${n} vektör C ile aynı`);
+}
+
+// 3. ChaCha20: Node'un OpenSSL uygulamasıyla karşılaştırma
+{
+  const key = Uint8Array.from({ length: 32 }, (_, i) => (i * 13 + 1) & 255);
+  const nonce = Uint8Array.from({ length: 12 }, (_, i) => (i * 7 + 3) & 255);
+  for (const [len, counter] of [[0, 0], [1, 0], [64, 0], [65, 1], [1000, 7], [4096, 123456]]) {
+    const data = Uint8Array.from({ length: len }, (_, i) => (i * 31 + 5) & 255);
+    const iv = Buffer.concat([Buffer.from(new Uint32Array([counter]).buffer), Buffer.from(nonce)]);
+    const ref = createCipheriv("chacha20", key, iv).update(data);
+    check(hex(S.chacha20Xor(key, nonce, counter, data)) === hex(ref), `ChaCha20 ${len}/${counter}`);
+  }
+  console.log("ChaCha20: Node (OpenSSL) ile aynı");
+}
+
+// 4. Komut satırı aracıyla karşılıklı uyumluluk (tek ve iki katman, sürüm 1 dosyası)
 const exe = path.join(root, process.platform === "win32" ? "build/bicbic.exe" : "build/bicbic");
 if (existsSync(exe)) {
   const dir = path.join(root, "build/tmp_web");
@@ -49,32 +85,56 @@ if (existsSync(exe)) {
   const env = { ...process.env, BICBIC_PAROLA: "Web-Anahtar ğüşıöç 2026" };
   const text = "Merhaba BicBic416! Türkçe: ğüşıöçİ — emoji 🔐\n".repeat(20);
 
-  const fromJs = await S.encryptText(text, env.BICBIC_PAROLA, { iterations: 2000 });
-  writeFileSync(path.join(dir, "js.bb416"), fromJs);
-  execFileSync(exe, ["coz", "-z", path.join(dir, "js.bb416"), path.join(dir, "js.txt")], { env, stdio: "pipe" });
-  check(readFileSync(path.join(dir, "js.txt"), "utf8") === text, "JS → bicbic.exe");
+  for (const layers of [1, 2]) {
+    const fromJs = await S.encryptText(text, env.BICBIC_PAROLA, { iterations: 2000, layers });
+    check(fromJs.length === new TextEncoder().encode(text).length + 36, "ek yük 36 bayt");
+    writeFileSync(path.join(dir, "js.bb416"), fromJs);
+    execFileSync(exe, ["coz", "-z", path.join(dir, "js.bb416"), path.join(dir, "js.txt")], { env, stdio: "pipe" });
+    check(readFileSync(path.join(dir, "js.txt"), "utf8") === text, `JS → bicbic (${layers} katman)`);
 
-  writeFileSync(path.join(dir, "c.txt"), text);
-  execFileSync(exe, ["sifrele", "-z", "-i", "2000", path.join(dir, "c.txt"), path.join(dir, "c.bb416")], { env, stdio: "pipe" });
-  const back = await S.decryptText(new Uint8Array(readFileSync(path.join(dir, "c.bb416"))), env.BICBIC_PAROLA);
-  check(back === text, "bicbic.exe → JS");
+    writeFileSync(path.join(dir, "c.txt"), text);
+    const args = ["sifrele", "-z", "-i", "2000", ...(layers === 2 ? ["-2"] : []),
+                  path.join(dir, "c.txt"), path.join(dir, "c.bb416")];
+    execFileSync(exe, args, { env, stdio: "pipe" });
+    const cBytes = new Uint8Array(readFileSync(path.join(dir, "c.bb416")));
+    check(S.inspect(cBytes).layers === layers, "katman bayrağı");
+    check((await S.decryptText(cBytes, env.BICBIC_PAROLA)) === text, `bicbic → JS (${layers} katman)`);
+  }
+
+  const out = execFileSync(exe, ["hash", path.join(dir, "c.txt")], { stdio: "pipe" }).toString();
+  check(out.slice(0, 104) === hex(S.hash(text)), "bicbic hash = JS hash");
   rmSync(dir, { recursive: true, force: true });
-  console.log("Komut satırı aracıyla iki yönlü uyumluluk sınandı");
+  console.log("Komut satırı aracıyla iki yönlü uyumluluk sınandı (1 ve 2 katman, hash)");
 } else {
-  console.log("build/bicbic bulunamadı; uyumluluk testi atlandı (make tool)");
+  console.log("build/bicbic bulunamadı; araç uyumluluk testi atlandı (make tool)");
 }
 
-// 3. Reddetme
+// 5. Sürüm 1 biçimindeki örnek dosya (v0.1.0 ile oluşturuldu) açılmaya devam etmeli
 {
-  const enc = await S.encryptText("gizli", "dogru", { iterations: 1000 });
+  const v1 = new Uint8Array(readFileSync(path.join(root, "tests/data/v1_ornek.bb416")));
+  const expect = readFileSync(path.join(root, "tests/data/v1_ornek.txt"), "utf8");
+  check(S.inspect(v1).version === 1, "v1 başlığı");
+  check((await S.decryptText(v1, "v1-ornek-parola")) === expect, "v1 dosyası açılır");
+}
+
+// 6. Reddetme
+{
+  for (const layers of [1, 2]) {
+    const enc = await S.encryptText("gizli", "dogru", { iterations: 1000, layers });
+    let err = "";
+    try { await S.decryptText(enc, "yanlis"); } catch (e) { err = e.message; }
+    check(err.includes("yanlış anahtar"), "yanlış anahtar reddedilmeli");
+    for (const [at, mask] of [[1, 0x40], [1, 0x18], [5, 1], [20, 1], [enc.length - 1, 1]]) {
+      const t = enc.slice(); t[at] ^= mask;
+      err = "";
+      try { await S.decryptText(t, "dogru"); } catch (e) { err = e.message; }
+      check(err !== "", `değiştirilmiş metin reddedilmeli (bayt ${at})`);
+    }
+    check((await S.decryptText(S.fromBase64(S.toBase64(enc)), "dogru")) === "gizli", "base64 gidiş-dönüş");
+  }
   let err = "";
-  try { await S.decryptText(enc, "yanlis"); } catch (e) { err = e.message; }
-  check(err.includes("yanlış anahtar"), "yanlış anahtar reddedilmeli");
-  const t = enc.slice(); t[75] ^= 1;
-  err = "";
-  try { await S.decryptText(t, "dogru"); } catch (e) { err = e.message; }
-  check(err.includes("değiştirilmiş"), "değiştirilmiş metin reddedilmeli");
-  check((await S.decryptText(S.fromBase64(S.toBase64(enc)), "dogru")) === "gizli", "base64 gidiş-dönüş");
+  try { await S.encryptText("x", "p", { iterations: 1500 }); } catch (e) { err = e.message; }
+  check(err.includes("1000"), "1000'in katı olmayan yineleme reddedilmeli");
 }
 
 console.log(fails ? `BAŞARISIZ: ${fails} hata` : `TAMAM (${checks} kontrol)`);

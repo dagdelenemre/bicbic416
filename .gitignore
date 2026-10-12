@@ -5,9 +5,10 @@ build/
 *.obj
 *.s
 
-# Şifrelenmiş örnek dosyalar
+# Şifrelenmiş dosyalar (testlerin kullandığı örnek dosya hariç)
 *.bb416
 *.bb416tmp
+!tests/data/*.bb416
 
 # Araç ve editör dosyaları
 .vercel/

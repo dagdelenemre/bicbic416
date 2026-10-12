@@ -164,6 +164,25 @@ def ctr(key, nonce, counter, data, R):
     return bytes(out)
 
 
+
+# ---- BicBic-Hash (SPEC.md §12): Miyaguchi–Preneel + Merkle–Damgård ----------
+
+HASH_ROUNDS = 16
+HASH_FINAL = b"BicBic-Hash/son".ljust(52, b"\0")
+
+
+def bb_hash(data: bytes) -> bytes:
+    h = encrypt(bytes(52), bytes(52), HASH_ROUNDS)          # IV = E_0(0)
+    padded = data + b"\x80"
+    padded += b"\0" * ((-len(padded) - 8) % 52)
+    padded += ((8 * len(data)) % 2**64).to_bytes(8, "little")
+    for off in range(0, len(padded), 52):
+        m = padded[off:off + 52]
+        e = encrypt(h, m, HASH_ROUNDS)
+        h = bytes(a ^ b ^ c for a, b, c in zip(e, m, h))
+    e = encrypt(h, HASH_FINAL, HASH_ROUNDS)
+    return bytes(a ^ b ^ c for a, b, c in zip(e, HASH_FINAL, h))
+
 # ---- tests/test_kat.c ile çapraz kontrol ----------------------------------
 
 def pattern(pat):
@@ -206,6 +225,21 @@ def main():
     if got.hex() != joined("test_ctr"):
         fails += 1
         print("HATA: CTR")
+
+    # BicBic-Hash vektörleri (tests/test_hash.c)
+    hsrc = (Path(__file__).resolve().parent.parent / "tests" / "test_hash.c").read_text(encoding="utf-8")
+    two = r'"([0-9a-f]{52})"\s*"([0-9a-f]{52})"'
+    for msg, hx1, hx2 in re.findall(r'\{\s*"([^"]*)",\s*(?:\d+|sizeof\([^)]*\) - 1),\s*' + two, hsrc):
+        checks += 1
+        if bb_hash(msg.encode("utf-8")).hex() != hx1 + hx2:
+            fails += 1
+            print(f"HATA: hash {msg!r}")
+    pat = bytes((i * 7 + 3) & 0xFF for i in range(1000))
+    for n, hx1, hx2 in re.findall(r'\{\s*(\d+),\s*' + two, hsrc):
+        checks += 1
+        if bb_hash(pat[:int(n)]).hex() != hx1 + hx2:
+            fails += 1
+            print(f"HATA: hash desen {n}")
 
     print(f"Python referansı: {checks - fails}/{checks} KAT vektörü C uygulamasıyla aynı")
     return 1 if fails else 0

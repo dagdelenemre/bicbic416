@@ -1,11 +1,12 @@
-// Sayfa davranışı. Şifre: bicbic416.js. Her şey tarayıcıda çalışır.
-import { encryptText, decryptText, randomKeyText, toBase64, fromBase64 } from "./bicbic416.js";
+// Sayfa davranışı. Şifre ve hash: bicbic416.js. Her şey tarayıcıda çalışır.
+import { encryptText, decryptText, inspect, hash, randomKeyText, toBase64, fromBase64 } from "./bicbic416.js";
 
 const $ = (id) => document.getElementById(id);
 const key = $("key"), input = $("input"), output = $("output"), status = $("status");
 const busyButtons = [$("enc"), $("dec")];
 
 const say = (msg, kind = "") => { status.textContent = msg; status.className = kind; };
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 async function run(fn, busyMsg) {
   if (!key.value) { say("Önce bir anahtar girin veya üretin.", "err"); key.focus(); return; }
@@ -15,27 +16,36 @@ async function run(fn, busyMsg) {
   await new Promise((r) => setTimeout(r, 20)); // durum yazısı ekrana çıksın
   const t0 = performance.now();
   try {
-    output.value = await fn();
-    say(`Tamam (${Math.round(performance.now() - t0)} ms).`, "ok");
+    const { text, detail } = await fn();
+    output.value = text;
+    say(`Tamam — ${detail} (${Math.round(performance.now() - t0)} ms).`, "ok");
   } catch (e) {
     output.value = "";
-    say(e.message.charAt(0).toUpperCase() + e.message.slice(1) + ".", "err");
+    say(capitalize(e.message) + ".", "err");
   } finally {
     busyButtons.forEach((b) => (b.disabled = false));
   }
 }
 
+const describe = (info) =>
+  `${info.layers === 2 ? "iki katman (BicBic416 + ChaCha20)" : "tek katman (BicBic416)"}, ${info.rounds} tur` +
+  (info.version === 1 ? ", eski biçim (v1)" : "");
+
 $("enc").onclick = () => run(async () => {
   const rounds = Math.min(32, Math.max(1, parseInt($("rounds").value, 10) || 16));
-  const iterations = Math.min(10000000, Math.max(1000, parseInt($("iters").value, 10) || 600000));
-  return toBase64(await encryptText(input.value, key.value, { rounds, iterations }));
+  const iters = Math.min(10000000, Math.max(1000, parseInt($("iters").value, 10) || 600000));
+  const iterations = Math.round(iters / 1000) * 1000;
+  const layers = $("layers2").checked ? 2 : 1;
+  const bytes = await encryptText(input.value, key.value, { rounds, iterations, layers });
+  return { text: toBase64(bytes), detail: describe(inspect(bytes)) };
 }, "Şifreleniyor…");
 
 $("dec").onclick = () => run(async () => {
   let bytes;
   try { bytes = fromBase64(input.value.trim()); }
   catch { throw new Error("girdi geçerli bir şifreli metin değil (base64 bekleniyor)"); }
-  return decryptText(bytes, key.value);
+  const info = inspect(bytes);
+  return { text: await decryptText(bytes, key.value), detail: "çözüldü: " + describe(info) };
 }, "Çözülüyor…");
 
 $("gen").onclick = () => {
@@ -51,11 +61,13 @@ $("show").onclick = () => {
   $("show").textContent = hidden ? "Gizle" : "Göster";
 };
 
-$("copy").onclick = async () => {
-  if (!output.value) return;
-  try { await navigator.clipboard.writeText(output.value); say("Panoya kopyalandı.", "ok"); }
-  catch { output.select(); say("Kopyalamak için Ctrl+C kullanın.", ""); }
-};
+async function copy(textarea, done) {
+  if (!textarea.value) return;
+  try { await navigator.clipboard.writeText(textarea.value); done("Panoya kopyalandı."); }
+  catch { textarea.select(); done("Kopyalamak için Ctrl+C kullanın."); }
+}
+
+$("copy").onclick = () => copy(output, (m) => say(m, "ok"));
 
 $("swap").onclick = () => {
   if (!output.value) return;
@@ -63,3 +75,26 @@ $("swap").onclick = () => {
   output.value = "";
   say("");
 };
+
+// ---- BicBic-Hash: yazdıkça güncellenir ----
+const hin = $("hin"), hout = $("hout");
+let hashTimer = 0;
+const fitHash = () => {
+  hout.style.height = "auto";
+  hout.style.height = hout.scrollHeight + 2 + "px"; // 104 karakter her ekran genişliğinde tam görünsün
+};
+const updateHash = () => {
+  hout.value = Array.from(hash(hin.value), (b) => b.toString(16).padStart(2, "0")).join("");
+  fitHash();
+};
+window.addEventListener("resize", fitHash);
+hin.addEventListener("input", () => {
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(updateHash, 120);
+});
+$("hcopy").onclick = () => copy(hout, (m) => {
+  const b = $("hcopy");
+  b.textContent = m.startsWith("Panoya") ? "Kopyalandı" : "Ctrl+C ile kopyalayın";
+  setTimeout(() => (b.textContent = "Kopyala"), 1500);
+});
+updateHash();

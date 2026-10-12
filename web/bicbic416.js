@@ -2,14 +2,15 @@
 // Eğitim amaçlıdır; gerçek gizli veriler için kullanmayın.
 // C uygulamasıyla aynı sonuçları verdiği web/test.mjs ile doğrulanır.
 //
-// Metin biçimi, komut satırı aracının .bb416 dosya biçimiyle aynıdır (tool/bicbic_file.h):
-//   "BB41" | sürüm 1 | tur | PBKDF2 yineleme (LE) | tuz 16 | nonce 44 | şifreli veri | HMAC-SHA256 32
-// Sayfa bunu base64 olarak gösterir; base64'ten çözülen bayt dizisi doğrudan
-// `bicbic coz` ile açılabilir (ve tersi).
+// İçerik: BicBic416 blok şifresi ve CTR modu, BicBic-Hash, ChaCha20 (iki katmanlı mod için)
+// ve parolalı metin şifreleme. Metin biçimi, komut satırı aracının .bb416 dosya biçimiyle
+// aynıdır (ayrıntı: tool/bicbic_file.h). Şifreleme sürüm 2 üretir (ek yük 36 bayt):
+//   0xB2 | tur + katman bayrağı | yineleme/1000 (2) | tuz (16) | şifreli veri | HMAC-SHA256 ilk 16 bayt
+// Çözme sürüm 1 ve 2'yi açar. Sayfa bu baytları base64 olarak gösterir; base64'ten
+// çözülüp kaydedilen dosya `bicbic coz` ile açılabilir (ve tersi).
 
 export const BLOCK = 52, KEY = 52, NONCE = 44, MAX_ROUNDS = 32;
 export const DEFAULT_ROUNDS = 16, DEFAULT_ITERS = 600000, MAX_ITERS = 10000000;
-const HEADER = 70, TAG = 32, SALT = 16;
 
 const ROT = [3, 16, 29, 10, 23, 4, 17, 30, 11, 24, 5, 18, 31];
 const KS_MUL = 0x2545f491, KS_GOLD = 0x9e3779b9;
@@ -161,45 +162,163 @@ export function ctrXor(ctx, nonce, counter, data) {
   return out;
 }
 
-// ---- Parolalı metin şifreleme (.bb416 biçimi, WebCrypto ile PBKDF2 + HMAC) ----
-const subtle = globalThis.crypto.subtle;
+// ---- BicBic-Hash (SPEC.md §12): Miyaguchi–Preneel + Merkle–Damgård -------------
+export const HASH_BYTES = 52;
+const HASH_ROUNDS = 16;
+const HASH_FINAL = new Uint8Array(BLOCK);
+HASH_FINAL.set(new TextEncoder().encode("BicBic-Hash/son"));
+let hashIV = null; // = E_0(0), ilk kullanımda hesaplanır
 
-async function deriveKeys(password, salt, iters) {
-  const base = await subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const dk = new Uint8Array(await subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: iters }, base, 84 * 8));
-  const macKey = await subtle.importKey("raw", dk.slice(KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-  return { encKey: dk.slice(0, KEY), macKey };
+function hashCompress(h, m) {
+  const e = encryptBlock(init(h, HASH_ROUNDS), m);
+  for (let i = 0; i < BLOCK; i++) h[i] ^= e[i] ^ m[i];
 }
 
-export async function encryptText(text, password, { rounds = DEFAULT_ROUNDS, iterations = DEFAULT_ITERS } = {}) {
-  if (!password) throw new Error("anahtar (parola) boş olamaz");
-  const data = new TextEncoder().encode(text);
-  const out = new Uint8Array(HEADER + data.length + TAG);
-  out.set([0x42, 0x42, 0x34, 0x31, 1, rounds], 0);
-  new DataView(out.buffer).setUint32(6, iterations, true);
-  globalThis.crypto.getRandomValues(out.subarray(10, HEADER)); // tuz + nonce
-  const salt = out.slice(10, 26), nonce = out.slice(26, HEADER);
-  const { encKey, macKey } = await deriveKeys(password, salt, iterations);
-  out.set(ctrXor(init(encKey, rounds), nonce, 0, data), HEADER);
-  const tag = new Uint8Array(await subtle.sign("HMAC", macKey, out.subarray(0, HEADER + data.length)));
-  out.set(tag, HEADER + data.length);
-  encKey.fill(0);
+// data: Uint8Array veya metin (UTF-8). 52 baytlık özet döndürür.
+export function hash(data) {
+  if (typeof data === "string") data = new TextEncoder().encode(data);
+  if (!hashIV) hashIV = encryptBlock(init(new Uint8Array(KEY), HASH_ROUNDS), new Uint8Array(BLOCK));
+  const h = hashIV.slice();
+  const pad = (((-(data.length + 9)) % BLOCK) + BLOCK) % BLOCK;
+  const m = new Uint8Array(data.length + 9 + pad);
+  m.set(data);
+  m[data.length] = 0x80;
+  const bits = (BigInt(data.length) * 8n) & 0xffffffffffffffffn;
+  for (let i = 0; i < 8; i++) m[m.length - 8 + i] = Number((bits >> BigInt(8 * i)) & 255n);
+  for (let off = 0; off < m.length; off += BLOCK) hashCompress(h, m.subarray(off, off + BLOCK));
+  hashCompress(h, HASH_FINAL);
+  return h;
+}
+
+// ---- ChaCha20 (RFC 8439): iki katmanlı modun ikinci katmanı -----------------------
+function quarter(x, a, b, c, d) {
+  x[a] += x[b]; x[d] = rotl(x[d] ^ x[a], 16);
+  x[c] += x[d]; x[b] = rotl(x[b] ^ x[c], 12);
+  x[a] += x[b]; x[d] = rotl(x[d] ^ x[a], 8);
+  x[c] += x[d]; x[b] = rotl(x[b] ^ x[c], 7);
+}
+
+export function chacha20Xor(key, nonce, counter, data) {
+  const st = new Uint32Array(16), x = new Uint32Array(16), out = new Uint8Array(data.length);
+  const kv = new DataView(key.buffer, key.byteOffset), nv = new DataView(nonce.buffer, nonce.byteOffset);
+  st.set([0x61707865, 0x3320646e, 0x79622d32, 0x6b206574]);
+  for (let i = 0; i < 8; i++) st[4 + i] = kv.getUint32(4 * i, true);
+  st[12] = counter;
+  for (let i = 0; i < 3; i++) st[13 + i] = nv.getUint32(4 * i, true);
+  const ks = new Uint8Array(64), kd = new DataView(ks.buffer);
+  for (let off = 0; off < data.length; off += 64) {
+    x.set(st);
+    for (let i = 0; i < 10; i++) {
+      quarter(x, 0, 4, 8, 12); quarter(x, 1, 5, 9, 13); quarter(x, 2, 6, 10, 14); quarter(x, 3, 7, 11, 15);
+      quarter(x, 0, 5, 10, 15); quarter(x, 1, 6, 11, 12); quarter(x, 2, 7, 8, 13); quarter(x, 3, 4, 9, 14);
+    }
+    for (let i = 0; i < 16; i++) kd.setUint32(4 * i, (x[i] + st[i]) >>> 0, true);
+    const n = Math.min(64, data.length - off);
+    for (let i = 0; i < n; i++) out[off + i] = data[off + i] ^ ks[i];
+    st[12] = st[12] + 1;
+  }
   return out;
 }
 
+// ---- Parolalı metin şifreleme (.bb416 biçimi; PBKDF2, HKDF, HMAC için WebCrypto) ----
+const subtle = globalThis.crypto.subtle;
+const V1_HEADER = 70, V1_TAG = 32, V2_FORMAT = 0xb2, V2_HEADER = 20, V2_TAG = 16;
+const ITER_UNIT = 1000, MAX_TWO_LAYER = 2 ** 38;
+const V2_INFO = new TextEncoder().encode("BicBic416 v2 anahtarlar");
+
+async function pbkdf2(password, salt, iters, bytes) {
+  const base = await subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: iters }, base, bytes * 8));
+}
+
+const hmacKey = (raw) => subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+
+// Sürüm 2: ana sır = PBKDF2(32), anahtarlar = HKDF(ana sır) → BicBic416 52 | HMAC 32 | ChaCha20 32.
+async function keysV2(password, salt, iters) {
+  const master = await pbkdf2(password, salt, iters, 32);
+  const hk = await subtle.importKey("raw", master, "HKDF", false, ["deriveBits"]);
+  const dk = new Uint8Array(await subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: V2_INFO }, hk, 116 * 8));
+  master.fill(0);
+  const keys = { enc: dk.slice(0, 52), mac: await hmacKey(dk.slice(52, 84)), chacha: dk.slice(84, 116) };
+  dk.fill(0);
+  return keys;
+}
+
+// Şifreli metnin başlığını okur (doğrulamadan). Geçersizse hata fırlatır.
+export function inspect(bytes) {
+  if (bytes.length >= V2_HEADER + V2_TAG && bytes[0] === V2_FORMAT && !(bytes[1] & 0x80)) {
+    const iterations = (bytes[2] | (bytes[3] << 8)) * ITER_UNIT;
+    const info = { version: 2, rounds: bytes[1] & 0x3f, layers: bytes[1] & 0x40 ? 2 : 1, iterations,
+                   headerLen: V2_HEADER, tagLen: V2_TAG };
+    if (info.rounds >= 1 && info.rounds <= MAX_ROUNDS && iterations >= 1 && iterations <= MAX_ITERS) return info;
+  } else if (bytes.length >= V1_HEADER + V1_TAG && bytes[0] === 0x42 && bytes[1] === 0x42 &&
+             bytes[2] === 0x34 && bytes[3] === 0x31 && bytes[4] === 1) {
+    const iterations = new DataView(bytes.buffer, bytes.byteOffset).getUint32(6, true);
+    const info = { version: 1, rounds: bytes[5], layers: 1, iterations, headerLen: V1_HEADER, tagLen: V1_TAG };
+    if (info.rounds >= 1 && info.rounds <= MAX_ROUNDS && iterations >= 1 && iterations <= MAX_ITERS) return info;
+  }
+  throw new Error("bu bir BicBic416 şifreli metni değil veya eksik kopyalanmış");
+}
+
+// Her zaman sürüm 2 üretir. layers: 1 (BicBic416) veya 2 (BicBic416 + ChaCha20).
+export async function encryptText(text, password,
+                                  { rounds = DEFAULT_ROUNDS, iterations = DEFAULT_ITERS, layers = 1 } = {}) {
+  if (!password) throw new Error("anahtar (parola) boş olamaz");
+  if (!Number.isInteger(rounds) || rounds < 1 || rounds > MAX_ROUNDS) throw new Error("tur sayısı 1..32 olmalı");
+  if (layers !== 1 && layers !== 2) throw new Error("katman sayısı 1 veya 2 olmalı");
+  if (!Number.isInteger(iterations) || iterations < ITER_UNIT || iterations > MAX_ITERS || iterations % ITER_UNIT)
+    throw new Error("yineleme sayısı 1000'in katı olmalı (1000..10 000 000)");
+  const data = new TextEncoder().encode(text);
+  if (layers === 2 && data.length > MAX_TWO_LAYER) throw new Error("iki katmanlı modda en fazla 256 GiB");
+
+  const out = new Uint8Array(V2_HEADER + data.length + V2_TAG);
+  out[0] = V2_FORMAT;
+  out[1] = rounds | (layers === 2 ? 0x40 : 0);
+  out[2] = (iterations / ITER_UNIT) & 255;
+  out[3] = (iterations / ITER_UNIT) >> 8;
+  globalThis.crypto.getRandomValues(out.subarray(4, V2_HEADER)); // tuz
+
+  const k = await keysV2(password, out.slice(4, V2_HEADER), iterations);
+  let ct = ctrXor(init(k.enc, rounds), new Uint8Array(NONCE), 0, data);
+  if (layers === 2) ct = chacha20Xor(k.chacha, new Uint8Array(12), 0, ct);
+  out.set(ct, V2_HEADER);
+  const tag = new Uint8Array(await subtle.sign("HMAC", k.mac, out.subarray(0, V2_HEADER + data.length)));
+  out.set(tag.subarray(0, V2_TAG), V2_HEADER + data.length);
+  k.enc.fill(0);
+  k.chacha.fill(0);
+  return out;
+}
+
+// Sürüm 1 ve 2'yi açar. Önce etiket doğrulanır; tutmazsa hiçbir şey çözülmez.
 export async function decryptText(bytes, password) {
-  if (bytes.length < HEADER + TAG || bytes[0] !== 0x42 || bytes[1] !== 0x42 || bytes[2] !== 0x34 ||
-      bytes[3] !== 0x31 || bytes[4] !== 1)
-    throw new Error("bu bir BicBic416 şifreli metni değil veya eksik kopyalanmış");
-  const rounds = bytes[5], iters = new DataView(bytes.buffer, bytes.byteOffset).getUint32(6, true);
-  if (rounds < 1 || rounds > MAX_ROUNDS || iters < 1 || iters > MAX_ITERS)
-    throw new Error("başlık geçersiz");
-  const body = bytes.subarray(0, bytes.length - TAG), tag = bytes.subarray(bytes.length - TAG);
-  const { encKey, macKey } = await deriveKeys(password, bytes.slice(10, 26), iters);
-  if (!(await subtle.verify("HMAC", macKey, tag, body)))
-    throw new Error("yanlış anahtar veya metin değiştirilmiş");
-  const plain = ctrXor(init(encKey, rounds), bytes.slice(26, HEADER), 0, bytes.subarray(HEADER, bytes.length - TAG));
-  encKey.fill(0);
+  const info = inspect(bytes);
+  const body = bytes.subarray(0, bytes.length - info.tagLen), tag = bytes.subarray(bytes.length - info.tagLen);
+  const ct = bytes.subarray(info.headerLen, bytes.length - info.tagLen);
+  let enc, chacha = null, mac, nonce;
+
+  if (info.version === 2) {
+    const k = await keysV2(password, bytes.slice(4, V2_HEADER), info.iterations);
+    ({ enc, mac } = k);
+    chacha = k.chacha;
+    nonce = new Uint8Array(NONCE);
+  } else {
+    const dk = await pbkdf2(password, bytes.slice(10, 26), info.iterations, 84);
+    enc = dk.slice(0, KEY);
+    mac = await hmacKey(dk.slice(KEY));
+    nonce = bytes.slice(26, V1_HEADER);
+    dk.fill(0);
+  }
+
+  const expect = new Uint8Array(await subtle.sign("HMAC", mac, body));
+  let diff = 0;
+  for (let i = 0; i < info.tagLen; i++) diff |= expect[i] ^ tag[i]; // sabit zamanlı karşılaştırma
+  if (diff) throw new Error("yanlış anahtar veya metin değiştirilmiş");
+
+  let plain = ctrXor(init(enc, info.rounds), nonce, 0, ct);
+  if (info.layers === 2) plain = chacha20Xor(chacha, new Uint8Array(12), 0, plain);
+  enc.fill(0);
+  if (chacha) chacha.fill(0);
   return new TextDecoder("utf-8", { fatal: false }).decode(plain);
 }
 

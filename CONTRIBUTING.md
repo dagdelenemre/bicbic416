@@ -8,7 +8,8 @@ taşınabilirlik düzeltmeleri değerlidir.
 Gerekenler:
 
 - C11 derleyicisi (GCC veya Clang) ve GNU make
-- Python 3 (referans uygulama ve test vektörü üretimi için)
+- Python 3 (referans uygulama için; test vektörlerini yeniden üretmek için ayrıca
+  `pip install cryptography` ve `python tests/gen_vectors.py`)
 - Node.js 20 veya üzeri (web uygulaması testi için)
 
 Windows'ta [w64devkit](https://github.com/skeeto/w64devkit) ve

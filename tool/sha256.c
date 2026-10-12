@@ -174,6 +174,38 @@ void pbkdf2_hmac_sha256(const void *pass, size_t pass_len, const uint8_t *salt, 
     wipe(t, sizeof t);
 }
 
+void hkdf_sha256(const uint8_t *salt, size_t salt_len, const uint8_t *ikm, size_t ikm_len,
+                 const uint8_t *info, size_t info_len, uint8_t *out, size_t out_len)
+{
+    static const uint8_t zero_salt[SHA256_BYTES] = { 0 };
+    uint8_t prk[SHA256_BYTES], t[SHA256_BYTES];
+    size_t t_len = 0;
+
+    /* Çıkarma: PRK = HMAC(tuz, IKM); tuz yoksa 32 sıfır bayt (RFC 5869 §2.2). */
+    if (salt_len == 0) {
+        salt = zero_salt;
+        salt_len = sizeof zero_salt;
+    }
+    hmac_sha256(salt, salt_len, ikm, ikm_len, prk);
+
+    /* Genişletme: T(i) = HMAC(PRK, T(i-1) || info || i). */
+    for (uint8_t i = 1; out_len; i++) {
+        hmac_sha256_ctx c;
+        hmac_sha256_init(&c, prk, sizeof prk);
+        hmac_sha256_update(&c, t, t_len);
+        hmac_sha256_update(&c, info, info_len);
+        hmac_sha256_update(&c, &i, 1);
+        hmac_sha256_final(&c, t);
+        t_len = sizeof t;
+        size_t take = out_len < sizeof t ? out_len : sizeof t;
+        memcpy(out, t, take);
+        out += take;
+        out_len -= take;
+    }
+    wipe(prk, sizeof prk);
+    wipe(t, sizeof t);
+}
+
 int ct_memcmp(const void *a, const void *b, size_t n)
 {
     const uint8_t *x = a, *y = b;

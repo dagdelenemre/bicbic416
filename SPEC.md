@@ -327,3 +327,65 @@ Varsayılan 16 geçicidir. Aşama 5'teki tabloya göre karar verilecek:
 
 Sonraki çalışma önerileri: azaltılmış turlarda (2–4) diferansiyel karakteristik arama,
 NIST STS / dieharder ile CTR çıktısının istatistiksel analizi.
+
+---
+
+## 12. BicBic-Hash (416-bit özet fonksiyonu)
+
+BicBic416 blok şifresinden **Miyaguchi–Preneel** yapısıyla türetilen, 416 bit (52 bayt)
+çıktılı bir özet fonksiyonu. Whirlpool da aynı yöntemle bir blok şifreden türetilmiştir.
+Anahtar ve blok boyutu eşit (52 bayt) olduğundan zincirleme değeri doğrudan bir sonraki
+bloğun anahtarı olur.
+
+```
+R_H   = 16                                 // hash için tur sayısı (sabit)
+IV    = E_{0^52}(0^52)                     // sıfır anahtarla sıfır bloğun şifresi
+FINAL = "BicBic-Hash/son" || 0x00 × 37     // 52 baytlık son blok sabiti
+
+Dolgu (Merkle–Damgård güçlendirmesi):
+    M' = M || 0x80 || 0x00 × k || uzunluk_bit (8 bayt, little-endian)
+    k, |M'| 52'nin katı olacak şekilde en küçük değer
+
+Sıkıştırma:
+    C(h, m) = E_h(m) ⊕ m ⊕ h               // E_h: h anahtarıyla R_H turluk BicBic416
+
+h = IV
+her 52 baytlık M' bloğu m için:  h = C(h, m)
+H(M) = C(h, FINAL)
+```
+
+- **Son blok:** Çıktı son zincirleme değerini doğrudan açığa çıkarmaz. Böylece uzunluk
+  uzatma (length extension) saldırısı engellenir.
+- **Genel (yapıdan gelen) güvenlik sınırı:** Çakışmaya karşı 2^208, ön-görüntüye karşı
+  2^416. Bu sınırlar yalnızca BicBic416 ideal bir blok şifre gibi davranırsa geçerlidir;
+  bu varsayım kanıtlanmamıştır.
+- **Hız:** Her blokta anahtar planı yeniden çalıştığı için yavaştır (yaklaşık 16 MB/s).
+- **Deneyseldir.** Parola türetme, mühür (MAC) ve dijital imza gibi güvenlik işlerinde
+  SHA-256 / SHA-3 kullanılır; dosya aracı da bu işler için SHA-256 kullanır.
+
+---
+
+## 13. İki katmanlı mod ve dosya biçimi
+
+Dosya aracı ve web uygulaması, isteğe bağlı olarak BicBic416-CTR'nin üstüne ikinci,
+bağımsız bir **ChaCha20** (RFC 8439) katmanı ekler:
+
+```
+şifreli = düz ⊕ BicBic416-CTR(K1) ⊕ ChaCha20(K2)        K1, K2 bağımsız anahtarlar
+```
+
+İki anahtar akışının XOR'u, ikisinden **en az biri** öngörülemez kaldıkça öngörülemezdir.
+Yani saldırganın iki şifreyi birden kırması gerekir.
+
+Anahtarlar paroladan şöyle türetilir:
+
+```
+ana_sır    = PBKDF2-HMAC-SHA256(parola, tuz, yineleme, 32)
+anahtarlar = HKDF-SHA256(ana_sır, "BicBic416 v2 anahtarlar", 116)
+           → K1 (52) | HMAC anahtarı (32) | K2 (32)
+```
+
+Her dosyanın tuzu rastgeledir, bu yüzden anahtarlar her dosyada farklıdır. Nonce'lar bu
+nedenle sabit tutulabilir (sıfır) ve dosyaya yazılmaz. Dosya biçimi sürüm 2'nin ek yükü
+36 bayttır (20 bayt başlık + 16 bayt etiket); ayrıntılar `tool/bicbic_file.h` içindedir.
+Sürüm 1 dosyaları (102 bayt ek yük) okunmaya devam eder.

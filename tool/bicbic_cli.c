@@ -1,9 +1,10 @@
 /*
- * bicbic — BicBic416 ile parolalı dosya şifreleme aracı.
+ * bicbic — BicBic416 ile parolalı dosya şifreleme ve BicBic-Hash aracı.
  *
- *   bicbic sifrele [-r TUR] [-i YINELEME] [-z] <girdi> <cikti>
+ *   bicbic sifrele [-2] [-r TUR] [-i YINELEME] [-z] <girdi> <cikti>
  *   bicbic coz [-z] <girdi> <cikti>
  *   bicbic bilgi <dosya>
+ *   bicbic hash <dosya>...
  *
  * Parola klavyeden (ekranda görünmeden) sorulur. Otomasyon için BICBIC_PAROLA
  * ortam değişkeni de kullanılabilir (paylaşılan makinelerde önerilmez).
@@ -19,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bicbic416.h"
 #include "bicbic_file.h"
 #include "sha256.h"
 
@@ -26,6 +28,7 @@
 
 #if defined(_WIN32)
 #  include <conio.h>
+#  include <fcntl.h>
 #  include <io.h>
 #  include <windows.h>
 
@@ -87,18 +90,21 @@ static void usage(void)
         "BicBic416 dosya şifreleme aracı (eğitim amaçlı — gerçek gizli veriler için kullanmayın)\n"
         "\n"
         "Kullanım:\n"
-        "  bicbic sifrele [-r TUR] [-i YINELEME] [-z] <girdi> <cikti>\n"
+        "  bicbic sifrele [-2] [-r TUR] [-i YINELEME] [-z] <girdi> <cikti>\n"
         "  bicbic coz [-z] <girdi> <cikti>\n"
         "  bicbic bilgi <dosya>\n"
+        "  bicbic hash <dosya>...     (dosya yerine - : standart girdi)\n"
         "\n"
         "Seçenekler:\n"
+        "  -2           iki katman: BicBic416 + ChaCha20 (biri kırılsa diğeri korur)\n"
         "  -r TUR       tur sayısı, 1..32 (varsayılan 16)\n"
-        "  -i YINELEME  parola türetme yineleme sayısı (varsayılan 600000;\n"
+        "  -i YINELEME  parola türetme yineleme sayısı, 1000'in katı (varsayılan 600000;\n"
         "               büyüdükçe parola tahmini zorlaşır, açılış yavaşlar)\n"
         "  -z           çıktı dosyası varsa üzerine yaz\n"
         "\n"
         "Parola ekranda görünmeden sorulur. Betiklerde BICBIC_PAROLA ortam değişkeni\n"
-        "kullanılabilir. Dosya değiştirilirse veya parola yanlışsa çözme reddedilir.\n",
+        "kullanılabilir. Dosya değiştirilirse veya parola yanlışsa çözme reddedilir.\n"
+        "Çözme, katman sayısını ve ayarları dosyanın kendisinden okur.\n",
         stderr);
 }
 
@@ -146,6 +152,42 @@ static int get_password(char *pw, int confirm)
     return 0;
 }
 
+/* sha256sum gibi: "<104 onaltılık karakter>  <ad>". "-" standart girdidir. */
+static int hash_files(int argc, char **argv)
+{
+    int status = 0;
+    static uint8_t buf[1 << 16];
+    for (int i = 0; i < argc; i++) {
+        int is_stdin = strcmp(argv[i], "-") == 0;
+        FILE *f = is_stdin ? stdin : fopen(argv[i], "rb");
+        if (!f) {
+            fprintf(stderr, "hata: %s okunamadı\n", argv[i]);
+            status = 1;
+            continue;
+        }
+#if defined(_WIN32)
+        if (is_stdin) _setmode(_fileno(stdin), _O_BINARY);
+#endif
+        bb416_hash_ctx c;
+        uint8_t out[BB416_HASH_BYTES];
+        size_t n;
+        bb416_hash_init(&c);
+        while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+            bb416_hash_update(&c, buf, n);
+        int err = ferror(f);
+        if (!is_stdin) fclose(f);
+        if (err) {
+            fprintf(stderr, "hata: %s okunurken hata oluştu\n", argv[i]);
+            status = 1;
+            continue;
+        }
+        bb416_hash_final(&c, out);
+        for (int b = 0; b < BB416_HASH_BYTES; b++) printf("%02x", out[b]);
+        printf("  %s\n", argv[i]);
+    }
+    return status;
+}
+
 int main(int argc, char **argv)
 {
 #if defined(_WIN32)
@@ -154,7 +196,12 @@ int main(int argc, char **argv)
     if (argc < 2) { usage(); return 1; }
     const char *cmd = argv[1];
 
-    int rounds = BBF_DEFAULT_ROUNDS, overwrite = 0;
+    if (strcmp(cmd, "hash") == 0) {
+        if (argc < 3) { usage(); return 1; }
+        return hash_files(argc - 2, argv + 2);
+    }
+
+    int rounds = BBF_DEFAULT_ROUNDS, overwrite = 0, layers = 1;
     long iters = (long)BBF_DEFAULT_ITERS;
     const char *paths[2] = { NULL, NULL };
     int npaths = 0;
@@ -163,6 +210,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "-r") == 0 && i + 1 < argc) rounds = atoi(argv[++i]);
         else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) iters = atol(argv[++i]);
         else if (strcmp(argv[i], "-z") == 0) overwrite = 1;
+        else if (strcmp(argv[i], "-2") == 0) layers = 2;
         else if (npaths < 2) paths[npaths++] = argv[i];
         else { usage(); return 1; }
     }
@@ -171,9 +219,13 @@ int main(int argc, char **argv)
         bbf_info info;
         int rc = bbf_read_info(paths[0], &info);
         if (rc != BBF_OK) { fprintf(stderr, "hata: %s\n", bbf_strerror(rc)); return 1; }
-        printf("BicBic416 dosyası (sürüm 1)\n  tur sayısı: %d\n  PBKDF2 yineleme: %lu\n"
-               "  veri boyutu: %llu bayt\n", info.rounds, (unsigned long)info.iterations,
-               (unsigned long long)info.data_bytes);
+        printf("BicBic416 dosyası (biçim sürümü %d)\n"
+               "  katmanlar: %s\n"
+               "  tur sayısı: %d\n"
+               "  PBKDF2 yineleme: %lu\n"
+               "  veri boyutu: %llu bayt\n",
+               info.version, info.layers == 2 ? "BicBic416 + ChaCha20" : "BicBic416",
+               info.rounds, (unsigned long)info.iterations, (unsigned long long)info.data_bytes);
         return 0;
     }
 
@@ -183,7 +235,8 @@ int main(int argc, char **argv)
         fputs("hata: girdi ve çıktı aynı dosya olamaz\n", stderr);
         return 1;
     }
-    if (enc && (rounds < 1 || rounds > 32 || iters < 1 || iters > (long)BBF_MAX_ITERS)) {
+    if (enc && (rounds < 1 || rounds > 32 || iters < (long)BBF_ITER_UNIT ||
+                iters > (long)BBF_MAX_ITERS || iters % (long)BBF_ITER_UNIT)) {
         fprintf(stderr, "hata: %s\n", bbf_strerror(BBF_ERR_PARAM));
         return 1;
     }
@@ -191,7 +244,7 @@ int main(int argc, char **argv)
     char pw[PW_MAX];
     if (get_password(pw, enc) != 0) { wipe(pw, sizeof pw); return 1; }
 
-    int rc = enc ? bbf_encrypt_file(paths[0], paths[1], pw, rounds, (uint32_t)iters, overwrite)
+    int rc = enc ? bbf_encrypt_file(paths[0], paths[1], pw, rounds, (uint32_t)iters, layers, overwrite)
                  : bbf_decrypt_file(paths[0], paths[1], pw, overwrite);
     wipe(pw, sizeof pw);
 

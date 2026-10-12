@@ -23,7 +23,8 @@ Bütün sonuçlar yeniden üretilebilir. Komutlar her bölümde verilmiştir. Ha
 | PractRand (istatistik paketi) | CTR çıktısında rastgelelikten sapma | 1 | ✅ 64 GB temiz |
 | Yapısal simetri | Tümleme, döndürme, ayna simetrisi | — | ✅ yok |
 | Zamanlama yan kanalı | Süreye bakarak sır sızdırma | — | ✅ sızıntı yok |
-| Bulanık test (dosya aracı) | Çökme, bellek hatası, sahte dosya kabulü | — | ✅ 20 000 mutant, 0 sorun |
+| Bulanık test (dosya aracı) | Çökme, bellek hatası, sahte dosya kabulü | — | ✅ 2 × 20 000 mutant (v1, v2, iki katman), 0 sorun |
+| BicBic-Hash (v0.2.0) | Yanlış uygulama, zayıf karıştırma, çakışma | — | ✅ 3 bağımsız uygulama aynı; çığ ideal |
 | Kod incelemesi ve uyumluluk testi | Uygulama hataları | — | ⚠️ 1 güvenlik açığı + 1 hata bulundu, ikisi de düzeltildi |
 
 **Tur sayısı için yorum:** Azaltılmış tur testlerinin hepsinde şifre **yalnızca 1 turda**
@@ -223,6 +224,17 @@ rastgele dosyalar.
   Dağılım: 13 828 doğrulama hatası, 5 642 biçim hatası. 530 mutasyon dosyayı fiilen
   değiştirmemişti.
 
+**v0.2.0'da tekrarlandı.** Bu sefer üç farklı kaynak dosya mutasyona uğratıldı:
+
+| Kaynak | Mutant sayısı |
+|---|---:|
+| Sürüm 2, tek katman | 6 655 |
+| Sürüm 2, iki katman | 6 611 |
+| Sürüm 1 örnek dosyası | 6 734 |
+
+Sonuç yine temiz: çökme yok, kabul edilen değiştirilmiş dosya **0**. Dağılım: 13 933
+doğrulama hatası, 5 975 biçim hatası. 92 mutasyon dosyayı fiilen değiştirmemişti.
+
 ### 9.2 Kod incelemesinde bulunan ve düzeltilen açık
 
 **TOCTOU (kontrol ile kullanım arasındaki zaman):** Çözme işlemi dosyayı iki kez okuyor:
@@ -260,7 +272,59 @@ testinde (`node web/test.mjs`) ortaya çıktı.
 
 ---
 
-## 10. Bu raporun yapmadıkları
+## 10. v0.2.0 eklemeleri: BicBic-Hash, iki katman, sürüm 2 biçimi
+
+### 10.1 BicBic-Hash
+
+`tests/test_hash.c` · tanım: SPEC.md §12
+
+- **Doğruluk:** 16 sabit vektör (boş girdi, "abc", Türkçe metin, blok ve dolgu sınırlarındaki
+  uzunluklar) **üç ayrı uygulamada** aynı sonucu veriyor:
+  - C: `src/bicbic416.c`
+  - Python: `ref/bicbic416_ref.py`
+  - JavaScript: `web/bicbic416.js`
+- **IV:** Keyfi seçilmiş bir sabit değil; sıfır anahtarla sıfır bloğun şifresi (E_0(0)).
+  Test bunu doğruluyor.
+- **Çığ etkisi:** Girdide 1 bit değişince çıktıda ortalama 208.39 bit değişiyor (ideal
+  208). Standart sapma 10.12 (ideal 10.2), 5 000 denemede en az 171 bit.
+- **Çakışma:** 100 000 yapılı girdide (ardışık sayaçlar) çakışma yok. Bu yalnızca bir
+  akıl sağlığı kontrolüdür; doğum günü sınırı 2^208 olduğu için gerçek bir çakışma
+  testi değildir.
+
+**Sınır:** Hash'in güvenliği tamamen BicBic416'nın ilişkili anahtar (related-key)
+saldırılarına dayanıklılığına bağlıdır. Miyaguchi–Preneel yapısında zincirleme değeri
+anahtar olarak kullanılır ve saldırgan bu anahtarı dolaylı olarak seçebilir. Bu
+dayanıklılık analiz edilmedi. Azaltılmış turlarda çakışma ve ön-görüntü araması da
+yapılmadı.
+
+### 10.2 İki katmanlı mod ve yeni yardımcılar
+
+- **ChaCha20:** RFC 8439 §2.4.2 test vektörünü ve Python `cryptography` (OpenSSL) ile
+  üretilen 7 vektörü geçiyor. JavaScript sürümü Node'un OpenSSL'iyle karşılaştırıldı.
+- **HKDF-SHA256:** RFC 5869 test durumu 1 ve OpenSSL ile üretilen 3 vektörle doğrulandı.
+- **Katmanların bağımsızlığı:** İki katmanın anahtarları HKDF ile tek bir ana sırdan,
+  ama ayrı çıktı bölgelerinden türetiliyor. Bu yüzden birinin anahtarı diğerininkinden
+  hesaplanamaz. Bir katman kırılsa bile diğerinin anahtar akışı veriyi korumaya devam
+  eder.
+- **Ortak zayıf nokta:** İki katman da aynı paroladan türetiliyor. Zayıf bir parola
+  **iki katmanı birden** açar; iki katman parola zayıflığına çare değildir.
+
+### 10.3 Sürüm 2 biçimi
+
+- **Sabit nonce:** Nonce'ların sabit (sıfır) olması yalnızca her dosyanın anahtarının
+  benzersiz olmasına dayanıyor. Her dosya 128 bitlik rastgele bir tuz alıyor; iki
+  dosyanın aynı tuzu alma olasılığı, 2^64 dosyadan önce ihmal edilebilir düzeydedir.
+- **16 baytlık etiket:** Sahte bir dosyanın kabul edilme olasılığı tahmin başına
+  2^-128'dir. Bu, AES-GCM ve ChaCha20-Poly1305 ile aynı düzey.
+- **Başlığın korunması:** Başlıktaki her alan (biçim, tur, katman bayrağı, yineleme,
+  tuz) etikete dahil. `test_file` bu alanların her biriyle oynamanın reddedildiğini
+  doğruluyor; katman bayrağının kapatılması da buna dahil.
+- **Eski biçim:** v0.1.0 ile oluşturulmuş sürüm 1 örnek dosyası (`tests/data/`) C ve
+  JavaScript testlerinde açılmaya devam ediyor.
+
+---
+
+## 11. Bu raporun yapmadıkları
 
 - Elle diferansiyel/lineer karakteristik arama, otomatik iz arama (MILP/SAT tabanlı)
 - Toplama/çarpma için bilinen ARX diferansiyel ve lineer yaklaşımların sistematik kullanımı
@@ -270,6 +334,7 @@ testinde (`node web/test.mjs`) ortaya çıktı.
   birbirinden farklı olduğu test edildi.
 - Cebirsel saldırılar, ortada buluşma (meet-in-the-middle) saldırıları
 - TestU01 BigCrush ve NIST STS
+- BicBic-Hash için azaltılmış turlarda çakışma ve ön-görüntü araması, ilişkili anahtar analizi
 
 Bunlar, spesifikasyonun "sonraki çalışma" önerileriyle birlikte, bir şifrenin güvenli
 sayılabilmesi için gereken asgari analizin parçasıdır.

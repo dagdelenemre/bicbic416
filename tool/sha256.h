@@ -37,6 +37,11 @@ void hmac_sha256(const void *key, size_t key_len, const void *data, size_t len,
 void pbkdf2_hmac_sha256(const void *pass, size_t pass_len, const uint8_t *salt, size_t salt_len,
                         uint32_t iterations, uint8_t *out, size_t out_len);
 
+/* HKDF-SHA256 (RFC 5869): tek bir sırdan birbirinden bağımsız anahtarlar türetir.
+ * out_len en fazla 255 × 32 bayt olabilir. */
+void hkdf_sha256(const uint8_t *salt, size_t salt_len, const uint8_t *ikm, size_t ikm_len,
+                 const uint8_t *info, size_t info_len, uint8_t *out, size_t out_len);
+
 /* Sabit zamanlı karşılaştırma: 0 = eşit. Etiket doğrulamasında zamanlama sızıntısını önler. */
 int ct_memcmp(const void *a, const void *b, size_t n);
 

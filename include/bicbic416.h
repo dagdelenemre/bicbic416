@@ -52,6 +52,25 @@ int  bb416_ctr_xor(const bb416_ctx *ctx, const uint8_t nonce[BB416_NONCE_BYTES],
 /* Derleyicinin optimize edip silemeyeceği şekilde sıfırlar. */
 void bb416_wipe(bb416_ctx *ctx);
 
+/*
+ * BicBic-Hash: 416 bitlik (52 bayt) özet fonksiyonu (SPEC.md §12).
+ * BicBic416 blok şifresinden Miyaguchi–Preneel yapısıyla türetilir. Deneyseldir;
+ * parola saklama veya imza gibi güvenlik işleri için SHA-256/SHA-3 kullanın.
+ */
+#define BB416_HASH_BYTES 52
+
+typedef struct {
+    uint8_t h[BB416_HASH_BYTES];   /* zincirleme değeri */
+    uint8_t buf[BB416_BLOCK_BYTES];
+    size_t used;
+    uint64_t total;                /* işlenen toplam bayt */
+} bb416_hash_ctx;
+
+void bb416_hash_init(bb416_hash_ctx *c);
+void bb416_hash_update(bb416_hash_ctx *c, const void *data, size_t len);
+void bb416_hash_final(bb416_hash_ctx *c, uint8_t out[BB416_HASH_BYTES]);
+void bb416_hash(const void *data, size_t len, uint8_t out[BB416_HASH_BYTES]);
+
 #ifdef __cplusplus
 }
 #endif

@@ -37,10 +37,10 @@ endif
 LDFLAGS += $(OSLIBS)
 
 LIB_SRCS  = $(wildcard src/*.c)
-TOOL_SRCS = tool/sha256.c tool/osrand.c tool/bicbic_file.c
+TOOL_SRCS = tool/sha256.c tool/chacha20.c tool/osrand.c tool/bicbic_file.c
 HEADERS   = $(wildcard include/*.h src/*.h tests/*.h tool/*.h)
 TESTS     = test_helpers test_steps test_keysched test_roundtrip test_ctr test_kat \
-            test_sha256 test_file test_avalanche
+            test_hash test_sha256 test_chacha20 test_file test_avalanche
 TEST_BINS = $(addprefix $(BUILD)/,$(addsuffix $(EXE),$(TESTS)))
 
 BENCH_ROUNDS ?= 6 8 16

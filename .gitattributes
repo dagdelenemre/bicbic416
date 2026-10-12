@@ -11,5 +11,9 @@
 *.sh     text eol=lf
 Makefile text eol=lf
 
-# tests/test_sha256.c üretilmiş dosyadır: python tests/gen_sha256_vectors.py
+# Üretilmiş test dosyaları: python tests/gen_vectors.py
 tests/test_sha256.c linguist-generated=true
+tests/test_chacha20.c linguist-generated=true
+
+# Test örnek dosyaları bayt bayt korunur (satır sonu dönüşümü yok).
+tests/data/* -text
