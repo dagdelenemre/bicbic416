@@ -1,0 +1,20 @@
+# Derleme çıktıları
+build/
+*.exe
+*.o
+*.obj
+*.s
+
+# Şifrelenmiş örnek dosyalar
+*.bb416
+*.bb416tmp
+
+# Araç ve editör dosyaları
+.vercel/
+.claude/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

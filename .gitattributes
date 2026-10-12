@@ -1,0 +1,15 @@
+# Tüm metin dosyaları depoda LF satır sonuyla saklanır.
+* text=auto eol=lf
+
+*.c      text diff=cpp
+*.h      text diff=cpp
+*.py     text diff=python
+*.js     text
+*.mjs    text
+*.html   text diff=html
+*.md     text diff=markdown
+*.sh     text eol=lf
+Makefile text eol=lf
+
+# tests/test_sha256.c üretilmiş dosyadır: python tests/gen_sha256_vectors.py
+tests/test_sha256.c linguist-generated=true

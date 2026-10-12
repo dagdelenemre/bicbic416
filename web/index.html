@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BicBic416</title>
+<meta name="description" content="BicBic416 deneysel blok şifresiyle tarayıcıda metin şifreleme ve çözme.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='none' stroke='%232f6fdf' stroke-width='3'/%3E%3Cpath d='M16 6a10 10 0 1 1-9.4 6.6M16 11a5 5 0 1 1-4.7 3.3' fill='none' stroke='%232f6fdf' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #5d6470; --line: #dde1e7;
+    --accent: #2f6fdf; --accent-text: #ffffff; --ok: #1d7a46; --err: #b42318; --warn-bg: #fff6e0; --warn: #7a5300;
+    --field: #fbfcfd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a21; --text: #e8eaee; --muted: #9aa2ae; --line: #2a2f3a;
+      --accent: #5b8ff0; --accent-text: #0b0d12; --ok: #5cc98b; --err: #ff7b72; --warn-bg: #2a2310; --warn: #e8c46b;
+      --field: #12151b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .warn {
+    background: var(--warn-bg); color: var(--warn); border-radius: 10px;
+    padding: 10px 14px; font-size: 14px; margin-bottom: 20px;
+  }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  label { display: block; font-weight: 600; font-size: 14px; margin: 0 0 6px; }
+  .hint { font-weight: 400; color: var(--muted); }
+  textarea, input[type=text], input[type=password], input[type=number] {
+    width: 100%; font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  }
+  textarea { min-height: 130px; resize: vertical; }
+  textarea.mono, input.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 8px; }
+  .row > input { flex: 1; min-width: 0; }
+  .field { margin-bottom: 16px; }
+  button {
+    font: inherit; font-weight: 600; border-radius: 10px; padding: 10px 16px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); white-space: nowrap;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .55; cursor: progress; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
+  .actions .primary { flex: 1; min-width: 120px; }
+  #status { min-height: 24px; font-size: 14px; margin-bottom: 8px; }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); }
+  details { margin-top: 4px; font-size: 14px; color: var(--muted); }
+  details .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 20px; }
+  @media (max-width: 480px) { details .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>BicBic416</h1>
+  <p class="sub">Metni anahtarla şifrele, şifreli metni aynı anahtarla çöz.</p>
+
+  <div class="warn">
+    Eğitim amaçlı, deneysel bir şifredir. Uzman kriptanalizinden geçmemiştir; gerçekten gizli
+    bilgiler için kullanmayın. Her şey tarayıcınızda çalışır, hiçbir veri sunucuya gönderilmez.
+  </div>
+
+  <div class="card">
+    <div class="field">
+      <label for="key">Anahtar <span class="hint">— şifrelerken ve çözerken aynısı gerekir</span></label>
+      <div class="row">
+        <input id="key" type="password" class="mono" autocomplete="off" spellcheck="false" placeholder="Anahtarınızı yazın veya üretin">
+        <button id="show" type="button" title="Anahtarı göster/gizle">Göster</button>
+        <button id="gen" type="button" title="Rastgele güçlü anahtar üret">Üret</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="input">Girdi <span class="hint">— şifrelenecek metin veya çözülecek şifreli metin</span></label>
+      <textarea id="input" spellcheck="false" placeholder="Metni buraya yazın veya yapıştırın"></textarea>
+    </div>
+
+    <div class="actions">
+      <button id="enc" class="primary" type="button">Şifrele</button>
+      <button id="dec" class="primary" type="button">Çöz</button>
+    </div>
+
+    <div id="status" role="status" aria-live="polite"></div>
+
+    <div class="field">
+      <label for="output">Sonuç</label>
+      <textarea id="output" class="mono" readonly placeholder="Sonuç burada görünecek"></textarea>
+    </div>
+    <div class="actions">
+      <button id="copy" type="button">Kopyala</button>
+      <button id="swap" type="button">Sonucu girdiye taşı</button>
+    </div>
+
+    <details>
+      <summary>Gelişmiş ayarlar</summary>
+      <div class="grid">
+        <div>
+          <label for="rounds">Tur sayısı (1–32)</label>
+          <input id="rounds" type="number" min="1" max="32" value="16">
+        </div>
+        <div>
+          <label for="iters">Anahtar türetme yinelemesi</label>
+          <input id="iters" type="number" min="1000" max="10000000" step="1000" value="600000">
+        </div>
+      </div>
+      <p>Çözerken bu ayarlar şifreli metnin içinden okunur. Şifreli metin, komut satırı aracının
+        <code>.bb416</code> biçiminin base64 hâlidir: <code>bicbic coz</code> ile de açılabilir.</p>
+    </details>
+  </div>
+
+  <footer>
+    BicBic416 · 416-bit blok · CTR modu + HMAC-SHA256 · PBKDF2 ile anahtar türetme
+  </footer>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
