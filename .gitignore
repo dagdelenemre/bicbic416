@@ -17,5 +17,12 @@ build/
 .idea/
 __pycache__/
 *.pyc
+*.egg-info/
+dist/
+
+# Python paketine kopyalanan yerel C kütüphanesi
+python/bicbic416/*.dll
+python/bicbic416/*.so
+python/bicbic416/*.dylib
 .DS_Store
 Thumbs.db

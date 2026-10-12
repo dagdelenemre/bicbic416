@@ -10,6 +10,8 @@ Bu proje, 416 bitlik (52 bayt) bir blok şifrenin C11 uygulamasıdır. Yanında 
 - Şifreden türetilen 416 bitlik bir hash fonksiyonu (**BicBic-Hash**)
 - Parolayla dosya şifreleyen bir araç (isteğe bağlı **iki katman**: BicBic416 + ChaCha20)
 - Tarayıcıda çalışan bir web uygulaması
+- **Log kayıtları için iki katmanlı şifreleme:** Python paketi, Node.js ve komut satırı
+  (bkz. [ENTEGRASYON.md](ENTEGRASYON.md))
 - Kapsamlı bir test ve kriptanaliz paketi
 
 > **English:** BicBic416 is an experimental 416-bit block cipher (13 × 32-bit words,
@@ -104,6 +106,39 @@ build/bicbic hash rapor.pdf
   `-z` (var olan dosyanın üzerine yaz)
 - **Dosya biçimi:** [tool/bicbic_file.h](tool/bicbic_file.h) içinde tanımlı.
 
+## Log kayıtlarını şifreleme (SOC / SIEM)
+
+Web sitesi veya uygulama loglarını satır satır **iki katmanlı** (BicBic416 + ChaCha20)
+şifreler ve HMAC-SHA256 ile mühürler. Her kayıt `bb416r1:` ile başlayan tek satırlık bir
+metindir; mevcut log dosyalarına ve SIEM'e doğrudan yazılabilir. Parola yerine bir kez
+üretilen 32 baytlık bir anahtar kullanılır. Anahtar değiştirmek mümkündür; eski kayıtlar
+eski anahtarla açılmaya devam eder. Kurulum, örnekler ve güvenlik notları
+**[ENTEGRASYON.md](ENTEGRASYON.md)** dosyasında.
+
+Python'da kullanım:
+
+```python
+import bicbic416
+s = bicbic416.RecordCipher.from_env()                  # BICBIC_ANAHTAR
+kayit = s.encrypt("giris basarili kullanici=ayse")     # 'bb416r1:...'
+```
+
+Komut satırında kullanım:
+
+```bash
+uygulama | bicbic log-sifrele >> guvenlik.bb416.log
+```
+
+```bash
+bicbic log-coz < guvenlik.bb416.log
+```
+
+| Yol | Kurulum | Hız |
+|---|---|---:|
+| Python | `pip install "git+https://github.com/dagdelenemre/bicbic416#subdirectory=python"` | ~520/s saf, ~78 000/s C ile |
+| Node.js | [web/bicbic416.js](web/bicbic416.js) dosyasını kopyalayın | ~9 400/s |
+| Diğer diller | `bicbic log-sifrele` / `log-coz` | ~59 000/s |
+
 ## BicBic-Hash
 
 BicBic416'dan türetilen, **416 bit** (52 bayt, 104 onaltılık karakter) çıktılı bir özet
@@ -163,6 +198,8 @@ Sayfanın ürettiği şifreli metin, `.bb416` dosya biçiminin base64 hâlidir. 
 | `test_sha256` | SHA-256, HMAC, PBKDF2 ve HKDF. Python (OpenSSL) çıktısıyla karşılaştırılır |
 | `test_chacha20` | ChaCha20: RFC 8439 vektörü ve Python `cryptography` (OpenSSL) çıktısı |
 | `test_file` | Dosya aracı: tek ve iki katman, boyutlar, yanlış parola, kurcalama, kesme, TOCTOU saldırısı, sürüm 1 uyumluluğu |
+| `test_record` | Log kayıt biçimi: ortak vektörler, gidiş-dönüş, her bitin kurcalanması, yanlış anahtar, base64url kenar durumları |
+| `python/tests` | Python paketi: C ile aynı vektörler (saf Python ve C kütüphanesi), logging, anahtar değiştirme, C aracıyla uyum |
 | `test_avalanche` | Çığ etkisi tablosu (aşağıda) |
 
 ## Çığ etkisi
@@ -234,5 +271,7 @@ tests/                  birim testleri, test vektörü üreticisi (gen_vectors.p
 bench/                  hız ölçümleri (genel ve log senaryosu)
 analysis/               kriptanaliz ve güvenlik testleri (ANALIZ.md)
 ref/bicbic416_ref.py    bağımsız Python referans uygulaması
-web/                    tarayıcı sayfası (JS uygulaması, Vercel)
+python/                 Python paketi (bicbic416): log kayıtları, logging entegrasyonu, hash
+web/                    tarayıcı sayfası ve Node.js'te de çalışan JS uygulaması
+ENTEGRASYON.md          log şifreleme entegrasyon rehberi
 ```

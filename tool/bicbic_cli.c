@@ -5,6 +5,9 @@
  *   bicbic coz [-z] <girdi> <cikti>
  *   bicbic bilgi <dosya>
  *   bicbic hash <dosya>...
+ *   bicbic anahtar-uret
+ *   bicbic log-sifrele [-k ANAHTAR_DOSYASI]   < düz satırlar   > kayıtlar
+ *   bicbic log-coz [-k ANAHTAR_DOSYASI]       < kayıtlar       > düz satırlar
  *
  * Parola klavyeden (ekranda görünmeden) sorulur. Otomasyon için BICBIC_PAROLA
  * ortam değişkeni de kullanılabilir (paylaşılan makinelerde önerilmez).
@@ -22,6 +25,7 @@
 
 #include "bicbic416.h"
 #include "bicbic_file.h"
+#include "bicbic_record.h"
 #include "sha256.h"
 
 #define PW_MAX 1024
@@ -188,6 +192,212 @@ static int hash_files(int argc, char **argv)
     return status;
 }
 
+/* ---- Log kayıtları (SPEC.md §14) ------------------------------------------
+ *
+ * Anahtarlar BICBIC_ANAHTAR ortam değişkeninden (virgülle ayrılmış, ilki şifreleme
+ * için kullanılır) veya -k ile verilen dosyadan (her satırda bir anahtar) okunur.
+ * Birden fazla anahtar, anahtar değiştirildikten sonra eski logları açmak içindir.
+ */
+#define MAX_KEYS 16
+
+typedef struct {
+    bbr_key keys[MAX_KEYS];
+    int count;
+} keyring;
+
+static int keyring_add(keyring *r, const char *text)
+{
+    uint8_t master[BBR_KEY_BYTES];
+    if (r->count >= MAX_KEYS || bbr_key_from_text(text, master) != BBR_OK)
+        return -1;
+    bbr_key_init(&r->keys[r->count++], master);
+    wipe(master, sizeof master);
+    return 0;
+}
+
+/* "a, b ,c" veya satır satır listeyi ayrıştırır; boşluklar ve # yorum satırları atlanır. */
+static int keyring_parse(keyring *r, char *list, const char *seps)
+{
+    for (char *tok = strtok(list, seps); tok; tok = strtok(NULL, seps)) {
+        while (*tok == ' ' || *tok == '\t') tok++;
+        size_t n = strlen(tok);
+        while (n && (tok[n - 1] == ' ' || tok[n - 1] == '\t' || tok[n - 1] == '\r')) tok[--n] = 0;
+        if (n == 0 || tok[0] == '#') continue;
+        if (keyring_add(r, tok) != 0) {
+            fputs("hata: geçersiz anahtar (\"bb416k1:\" ile başlamalı; üretmek için: bicbic anahtar-uret)\n",
+                  stderr);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int keyring_load(keyring *r, const char *key_file)
+{
+    r->count = 0;
+    if (key_file) {
+        FILE *f = fopen(key_file, "rb");
+        if (!f) { fprintf(stderr, "hata: %s okunamadı\n", key_file); return -1; }
+        char buf[4096];
+        size_t n = fread(buf, 1, sizeof buf - 1, f);
+        fclose(f);
+        buf[n] = 0;
+        int rc = keyring_parse(r, buf, "\n");
+        wipe(buf, sizeof buf);
+        if (rc) return -1;
+    } else {
+        const char *env = getenv("BICBIC_ANAHTAR");
+        if (!env) {
+            fputs("hata: anahtar yok. BICBIC_ANAHTAR ortam değişkenini ayarlayın veya -k <dosya> verin\n"
+                  "      (yeni anahtar: bicbic anahtar-uret)\n", stderr);
+            return -1;
+        }
+        char *copy = malloc(strlen(env) + 1);
+        if (!copy) return -1;
+        strcpy(copy, env);
+        int rc = keyring_parse(r, copy, ",");
+        wipe(copy, strlen(env));
+        free(copy);
+        if (rc) return -1;
+    }
+    if (r->count == 0) { fputs("hata: anahtar listesi boş\n", stderr); return -1; }
+    return 0;
+}
+
+static void keyring_wipe(keyring *r)
+{
+    for (int i = 0; i < r->count; i++) bbr_key_wipe(&r->keys[i]);
+    r->count = 0;
+}
+
+/* Satır okur (sonundaki \n ve \r atılır). Uzunluk sınırı yok. NULL = dosya sonu. */
+static char *read_line(FILE *f, size_t *len)
+{
+    size_t cap = 256, n = 0;
+    char *s = malloc(cap);
+    int c;
+    if (!s) return NULL;
+    while ((c = fgetc(f)) != EOF && c != '\n') {
+        if (n + 1 >= cap) {
+            char *t = realloc(s, cap *= 2);
+            if (!t) { free(s); return NULL; }
+            s = t;
+        }
+        s[n++] = (char)c;
+    }
+    if (c == EOF && n == 0) { free(s); return NULL; }
+    if (n && s[n - 1] == '\r') n--;
+    s[n] = 0;
+    *len = n;
+    return s;
+}
+
+static int is_b64url(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+}
+
+/* Standart girdinin her satırını bir kayda çevirir. */
+static int log_encrypt(const char *key_file)
+{
+    keyring r;
+    if (keyring_load(&r, key_file)) return 1;
+    size_t len;
+    char *line;
+    int status = 0;
+    while ((line = read_line(stdin, &len)) != NULL) {
+        size_t cap = bbr_text_len(len);
+        char *out = malloc(cap);
+        if (!out || bbr_encrypt_text(&r.keys[0], (const uint8_t *)line, len, NULL, 0, out, cap) != BBR_OK) {
+            fputs("hata: kayıt şifrelenemedi\n", stderr);
+            status = 1;
+        } else {
+            puts(out);
+        }
+        free(out);
+        wipe(line, len);
+        free(line);
+    }
+    fflush(stdout);
+    keyring_wipe(&r);
+    return status;
+}
+
+/* Her satırdaki tüm "bb416r1:..." parçalarını yerinde çözer; gerisini olduğu gibi bırakır.
+ * Böylece yalnızca bazı alanları şifrelenmiş log satırları da okunabilir. */
+static int log_decrypt(const char *key_file)
+{
+    keyring r;
+    if (keyring_load(&r, key_file)) return 1;
+    const size_t P = sizeof BBR_TEXT_PREFIX - 1;
+    size_t len;
+    char *line;
+    long failed = 0;
+    while ((line = read_line(stdin, &len)) != NULL) {
+        size_t i = 0;
+        while (i < len) {
+            char *hit = strstr(line + i, BBR_TEXT_PREFIX);
+            if (!hit) { fputs(line + i, stdout); break; }
+            size_t start = (size_t)(hit - line), end = start + P;
+            while (end < len && is_b64url(line[end])) end++;
+            fwrite(line + i, 1, start - i, stdout);
+
+            int rc = BBR_ERR_KEY;
+            uint8_t kid[BBR_KID_BYTES];
+            size_t tlen = end - start, cap = tlen, dlen = 0;
+            uint8_t *dec = malloc(cap + 1);
+            if (dec && bbr_text_kid(hit, tlen, kid) == BBR_OK) {
+                for (int k = 0; k < r.count; k++) {
+                    if (memcmp(r.keys[k].kid, kid, BBR_KID_BYTES) == 0) {
+                        rc = bbr_decrypt_text(&r.keys[k], hit, tlen, NULL, 0, dec, cap, &dlen);
+                        break;
+                    }
+                }
+            } else {
+                rc = BBR_ERR_FORMAT;
+            }
+            if (rc == BBR_OK) {
+                fwrite(dec, 1, dlen, stdout);
+            } else {
+                failed++;
+                fprintf(stdout, "[ÇÖZÜLEMEDİ: %s]", bbr_strerror(rc));
+            }
+            if (dec) { wipe(dec, cap); free(dec); }
+            i = end;
+        }
+        fputc('\n', stdout);
+        wipe(line, len);
+        free(line);
+    }
+    fflush(stdout);
+    keyring_wipe(&r);
+    if (failed) {
+        fprintf(stderr, "uyarı: %ld kayıt çözülemedi\n", failed);
+        return 2;
+    }
+    return 0;
+}
+
+static int generate_key(void)
+{
+    uint8_t master[BBR_KEY_BYTES];
+    char text[64];
+    if (bbr_generate_key(master) != BBR_OK) {
+        fputs("hata: rastgele sayı alınamadı\n", stderr);
+        return 1;
+    }
+    bbr_key_to_text(master, text, sizeof text);
+    puts(text);
+    bbr_key k;
+    bbr_key_init(&k, master);
+    fprintf(stderr, "anahtar kimliği: %02x%02x%02x%02x — bu anahtarı gizli tutun; "
+                    "kaybederseniz loglar açılamaz.\n", k.kid[0], k.kid[1], k.kid[2], k.kid[3]);
+    bbr_key_wipe(&k);
+    wipe(master, sizeof master);
+    wipe(text, sizeof text);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
 #if defined(_WIN32)
@@ -196,6 +406,20 @@ int main(int argc, char **argv)
     if (argc < 2) { usage(); return 1; }
     const char *cmd = argv[1];
 
+    if (strcmp(cmd, "anahtar-uret") == 0)
+        return generate_key();
+    if (strcmp(cmd, "log-sifrele") == 0 || strcmp(cmd, "log-coz") == 0) {
+        const char *key_file = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "-k") == 0 && i + 1 < argc) key_file = argv[++i];
+            else { usage(); return 1; }
+        }
+#if defined(_WIN32)
+        _setmode(_fileno(stdin), _O_BINARY);
+        _setmode(_fileno(stdout), _O_BINARY);
+#endif
+        return strcmp(cmd, "log-sifrele") == 0 ? log_encrypt(key_file) : log_decrypt(key_file);
+    }
     if (strcmp(cmd, "hash") == 0) {
         if (argc < 3) { usage(); return 1; }
         return hash_files(argc - 2, argv + 2);

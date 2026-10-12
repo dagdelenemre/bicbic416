@@ -322,6 +322,26 @@ yapılmadı.
 - **Eski biçim:** v0.1.0 ile oluşturulmuş sürüm 1 örnek dosyası (`tests/data/`) C ve
   JavaScript testlerinde açılmaya devam ediyor.
 
+### 10.4 Log kayıt biçimi (v0.3.0)
+
+`tests/test_record.c`, `python/tests`, `web/test.mjs`
+
+- **Uyumluluk:** C, saf Python, Python + C kütüphanesi ve JavaScript aynı 5 kayıt
+  vektörünü birebir üretiyor ve birbirlerinin kayıtlarını açabiliyor.
+  - Komut satırı araçlarıyla iki yönlü uyumluluk test edildi.
+  - 50 000 satırlık bir gidiş-dönüş, birebir aynı çıktı verdi.
+- **Kurcalama:** Bir kaydın **her baytının her biti** tek tek değiştirildi.
+  - Biçim baytındaki değişiklik "biçim hatası" verdi.
+  - Anahtar kimliğindeki değişiklik "başka anahtar" verdi.
+  - Geri kalan her değişiklik "mühür tutmuyor" verdi; hiçbiri kabul edilmedi.
+  - Ek bilginin değiştirilmesi ve kaydın kısaltılması da reddedildi.
+- **Benzersizlik:** Kayıt başına 128 bitlik rastgele N kullanılıyor. ChaCha20 anahtarı
+  kayda özel (HMAC(K_cc, N)) olduğu için ChaCha20'nin 96 bitlik nonce sınırı devreye
+  girmiyor.
+- **Bilinen sınırlar** (ENTEGRASYON.md §8):
+  - Simetrik anahtar: logları yazan sunucu onları okuyabilir de.
+  - Bir kaydın tamamen silinmesi tespit edilmez.
+
 ---
 
 ## 11. Bu raporun yapmadıkları

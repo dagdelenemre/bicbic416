@@ -50,3 +50,31 @@ jobs:
 
       - name: JavaScript uygulaması = C, araçla iki yönlü uyumluluk
         run: node web/test.mjs
+
+  python:
+    name: Python paketi (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: C aracı ve paylaşımlı kütüphane
+        run: make tool lib
+
+      - name: Testler (C kütüphanesiyle)
+        run: python -m unittest discover -s python/tests -v
+
+      - name: Testler (saf Python)
+        run: rm build/libbicbic416.so && python -m unittest discover -s python/tests -v
+
+      - name: pip ile kurulum
+        run: |
+          pip install ./python
+          cd /tmp && python -c "import bicbic416; s = bicbic416.RecordCipher(bicbic416.generate_key()); assert s.decrypt(s.encrypt('ok')) == 'ok'; print('kurulum tamam, arka uç:', bicbic416.backend)"

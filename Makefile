@@ -37,15 +37,15 @@ endif
 LDFLAGS += $(OSLIBS)
 
 LIB_SRCS  = $(wildcard src/*.c)
-TOOL_SRCS = tool/sha256.c tool/chacha20.c tool/osrand.c tool/bicbic_file.c
+TOOL_SRCS = tool/sha256.c tool/chacha20.c tool/osrand.c tool/bicbic_file.c tool/bicbic_record.c
 HEADERS   = $(wildcard include/*.h src/*.h tests/*.h tool/*.h)
 TESTS     = test_helpers test_steps test_keysched test_roundtrip test_ctr test_kat \
-            test_hash test_sha256 test_chacha20 test_file test_avalanche
+            test_hash test_sha256 test_chacha20 test_file test_record test_avalanche
 TEST_BINS = $(addprefix $(BUILD)/,$(addsuffix $(EXE),$(TESTS)))
 
 BENCH_ROUNDS ?= 6 8 16
 
-.PHONY: all test check bench tool analysis clean
+.PHONY: all test check bench tool lib vectors analysis clean
 
 all: $(TEST_BINS)
 
@@ -83,6 +83,27 @@ $(TOOL_BIN): tool/bicbic_cli.c $(LIB_SRCS) $(TOOL_SRCS) $(HEADERS)
 	$(CC) -std=c11 -O2 $(ARCH) -DNDEBUG $(WARN) -Iinclude -Isrc -Itool $< $(LIB_SRCS) $(TOOL_SRCS) -o $@ $(OSLIBS)
 
 tool: $(TOOL_BIN)
+
+# Paylaşımlı kütüphane: Python paketi (ctypes) ve diğer diller için hızlı yol.
+ifeq ($(OS),Windows_NT)
+  LIB_FILE = build/bicbic416.dll
+else ifeq ($(shell uname -s),Darwin)
+  LIB_FILE = build/libbicbic416.dylib
+else
+  LIB_FILE = build/libbicbic416.so
+endif
+
+$(LIB_FILE): $(LIB_SRCS) $(TOOL_SRCS) $(HEADERS)
+	mkdir -p build
+	$(CC) -std=c11 -O2 $(ARCH) -DNDEBUG -fPIC -shared $(WARN) -Iinclude -Isrc -Itool 	  $(LIB_SRCS) $(TOOL_SRCS) -o $@ $(OSLIBS)
+
+lib: $(LIB_FILE)
+
+# Kayıt biçimi ortak test vektörlerini yeniden üret (C, Python ve JS testleri kullanır).
+vectors: $(LIB_SRCS) $(TOOL_SRCS) $(HEADERS) tests/gen_record_vectors.c
+	mkdir -p build
+	$(CC) -std=c11 -O2 $(WARN) -Iinclude -Isrc -Itool tests/gen_record_vectors.c 	  $(LIB_SRCS) $(TOOL_SRCS) -o build/gen_record_vectors$(EXE) $(OSLIBS)
+	./build/gen_record_vectors$(EXE) tests/data/record_vectors.json
 
 # Kriptanaliz ve güvenlik analizi araçları (analysis/). Bu işlemciye özel, hızlı derleme.
 # Fuzz aracı ASan + UBSan ile derlenir (Clang gerekir). Sonuçlar için ANALIZ.md'ye bakın.

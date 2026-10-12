@@ -389,3 +389,41 @@ Her dosyanın tuzu rastgeledir, bu yüzden anahtarlar her dosyada farklıdır. N
 nedenle sabit tutulabilir (sıfır) ve dosyaya yazılmaz. Dosya biçimi sürüm 2'nin ek yükü
 36 bayttır (20 bayt başlık + 16 bayt etiket); ayrıntılar `tool/bicbic_file.h` içindedir.
 Sürüm 1 dosyaları (102 bayt ek yük) okunmaya devam eder.
+
+---
+
+## 14. Log kayıt biçimi (iki katman, anahtar tabanlı)
+
+Log satırı gibi küçük ve çok sayıdaki mesajlar için tasarlanmıştır. Dosya biçiminden (§13)
+farkı şudur: Parola yerine 32 baytlık rastgele bir **ana anahtar** kullanılır ve alt
+anahtarlar bir kez türetilir. Bu sayede kayıt başına maliyet mikrosaniyeler düzeyindedir.
+Her kayıt **her zaman iki katmanlıdır**.
+
+```
+M          = 32 baytlık ana anahtar (metin hâli: "bb416k1:" + base64url(M))
+alt        = HKDF-SHA256(M, tuz yok, "BicBic416 kayit v1", 120)
+           → K_bb (52) | K_mac (32) | K_cc (32) | kimlik (4)
+
+Kayıt başına:
+  N        = 16 rastgele bayt
+  K_r      = HMAC-SHA256(K_cc, N)                       // kayda özel ChaCha20 anahtarı
+  şifreli  = mesaj ⊕ BicBic416-CTR(K_bb, nonce = N || 0^28, sayaç 0)
+                   ⊕ ChaCha20(K_r, nonce = 0^12, sayaç 0)
+  başlık   = 0xB3 || kimlik || N                         // 21 bayt
+  etiket   = HMAC-SHA256(K_mac, |ek| (8 bayt LE) || ek || başlık || şifreli)[0..16)
+  kayıt    = başlık || şifreli || etiket                 // ek yük 37 bayt
+
+Metin hâli: "bb416r1:" + base64url(kayıt), dolgusuz
+```
+
+- **ek (ilişkili veri):** Şifrelenmeyen ama mühre giren bilgidir (ör. tarih, sunucu adı).
+  Değiştirilirse kayıt açılmaz. Çözerken aynı ek verilmelidir.
+- **kimlik:** Anahtar değiştirildiğinde eski kayıtların hangi anahtarla açılacağını
+  belirler. Anahtar hakkında bilgi sızdırmaz (HKDF çıktısıdır).
+- **N:** 128 bit rastgeledir. BicBic416-CTR nonce'u ve ChaCha20 anahtarı N'den
+  türetildiği için 2^64 kayda kadar tekrar olasılığı ihmal edilebilir düzeydedir.
+- **Sınır:** Her kayıt tek tek mühürlenir. Bir kaydın **silinmesi** ya da kayıtların
+  yerinin değiştirilmesi bu biçimle tespit edilmez. Gerekiyorsa sıra numarası veya
+  önceki kaydın özeti "ek" olarak eklenmelidir (bkz. ENTEGRASYON.md).
+- **Ortak test vektörleri:** `tests/data/record_vectors.json`. C, Python ve
+  JavaScript uygulamaları bu vektörlerle doğrulanır.

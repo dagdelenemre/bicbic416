@@ -137,5 +137,45 @@ if (existsSync(exe)) {
   check(err.includes("1000"), "1000'in katı olmayan yineleme reddedilmeli");
 }
 
+// 7. Log kayıtları (SPEC.md §14): ortak vektörler, kurcalama, anahtar değiştirme, C aracıyla uyum
+{
+  const vec = JSON.parse(readFileSync(path.join(root, "tests/data/record_vectors.json"), "utf8"));
+  for (const v of vec.kayitlar) {
+    const s = await S.RecordCipher.create(v.anahtar);
+    check(s.keyId === v.kimlik, "kayıt anahtar kimliği");
+    const msg = Buffer.from(v.mesaj_hex, "hex"), aad = Buffer.from(v.ek_hex, "hex");
+    check((await s.encrypt(msg, aad, { nonce: Buffer.from(v.nonce, "hex") })) === v.kayit, "kayıt vektörü = C");
+    check(hex(await s.decryptBytes(v.kayit, aad)) === v.mesaj_hex, "kayıt vektörü açılır");
+  }
+  for (const h of vec.hashler) check(hex(S.hash(Buffer.from(h.mesaj_hex, "hex"))) === h.hash, "hash vektörü");
+
+  const key = S.generateRecordKey(), s = await S.RecordCipher.create(key);
+  const tok = await s.encrypt("kullanici=ayşe ip=203.0.113.7", "web-1");
+  check((await s.decrypt(tok, "web-1")) === "kullanici=ayşe ip=203.0.113.7", "kayıt gidiş-dönüş");
+  const rejects = async (fn) => { try { await fn(); return false; } catch { return true; } };
+  check(await rejects(() => s.decrypt(tok, "web-2")), "yanlış ek bilgi reddedilir");
+  for (let i = 8; i < tok.length; i += 7) {
+    const bad = tok.slice(0, i) + (tok[i] === "A" ? "B" : "A") + tok.slice(i + 1);
+    check(await rejects(() => s.decrypt(bad, "web-1")), `değiştirilmiş kayıt reddedilir (${i})`);
+  }
+  const ring = await S.RecordCipher.create([S.generateRecordKey(), key]);
+  check((await ring.decrypt(tok, "web-1")).startsWith("kullanici="), "anahtar halkası eski kaydı açar");
+  const fields = await s.encryptFields({ olay: "giris", ip: "203.0.113.7" }, ["ip"]);
+  check(fields.olay === "giris" && fields.ip.startsWith("bb416r1:"), "alan şifreleme");
+  check((await s.decryptLine(`x ip=${fields.ip} y`)) === "x ip=203.0.113.7 y", "satır çözme");
+
+  if (existsSync(exe)) {
+    const env = { ...process.env, BICBIC_ANAHTAR: key };
+    const lines = ["giriş başarılı kullanici=ayşe", "ikinci satır"];
+    const jsTokens = (await Promise.all(lines.map((l) => s.encrypt(l)))).join("\n") + "\n";
+    const cOut = execFileSync(exe, ["log-coz"], { input: jsTokens, env }).toString().replace(/\r\n/g, "\n");
+    check(cOut === lines.join("\n") + "\n", "JS kaydı → bicbic log-coz");
+    const cTokens = execFileSync(exe, ["log-sifrele"], { input: lines.join("\n") + "\n", env }).toString();
+    const back = await Promise.all(cTokens.trim().split(/\r?\n/).map((t) => s.decrypt(t)));
+    check(back.join("\n") === lines.join("\n"), "bicbic log-sifrele → JS");
+  }
+  console.log("Log kayıtları: C ve Python ile aynı vektörler, C aracıyla iki yönlü uyumluluk");
+}
+
 console.log(fails ? `BAŞARISIZ: ${fails} hata` : `TAMAM (${checks} kontrol)`);
 process.exit(fails ? 1 : 0);

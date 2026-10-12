@@ -3,6 +3,33 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr-TR/1.1.0/) kurallarını,
 sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarını izler.
 
+## [0.3.0] — 2026-10-13
+
+### Eklenenler
+
+- **Log kayıt biçimi** (SPEC.md §14): Satır satır, **her zaman iki katmanlı**
+  (BicBic416 + ChaCha20), HMAC-SHA256 ile mühürlü kayıtlar.
+  - Metin hâli `bb416r1:…`; ek yük 37 bayt.
+  - Parola yerine 32 baytlık bir ana anahtar kullanılır (`bb416k1:…`).
+  - Anahtar kimliği sayesinde anahtar değiştirilebilir; isteğe bağlı ek bilgi (aad)
+    desteklenir.
+- **Python paketi `bicbic416`:**
+  - `RecordCipher`, `EncryptingFormatter` ve `FieldEncryptingFilter` (logging
+    entegrasyonu), BicBic-Hash
+  - Saf Python (bağımlılıksız) çalışır; C kütüphanesi bulunursa onu kullanır.
+  - Komut satırı: `python -m bicbic416`
+- **Node.js / tarayıcı:** `web/bicbic416.js` içinde `RecordCipher`
+- **Komut satırı:**
+  - `bicbic anahtar-uret`
+  - `bicbic log-sifrele`
+  - `bicbic log-coz`: satırdaki tüm kayıtları yerinde açar
+  - Anahtar halkası: `BICBIC_ANAHTAR` ya da `-k` ile dosya
+- **Paylaşımlı kütüphane:** `make lib` (`bicbic416.dll`, `libbicbic416.so`)
+- **Ortak test vektörleri:** `tests/data/record_vectors.json`. C, Python ve JavaScript
+  testleri bu vektörleri kullanır.
+- **ENTEGRASYON.md:** Python, Django, Node.js, rsyslog ve SIEM tarafı için örnekler;
+  anahtar yönetimi ve sınırlar
+
 ## [0.2.0] — 2026-10-12
 
 ### Eklenenler

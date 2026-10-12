@@ -342,3 +342,138 @@ export const fromBase64 = (t) => {
   for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
   return b;
 };
+
+// ---- Log kayıtları (SPEC.md §14): iki katman (BicBic416 + ChaCha20), HMAC-SHA256 mühür ----
+//
+//   const s = await RecordCipher.create(process.env.BICBIC_ANAHTAR.split(","));
+//   const kayit = await s.encrypt("kullanici=ayse ip=203.0.113.7");   // "bb416r1:..."
+//   await s.decrypt(kayit);
+//
+// Node.js 19+ (global WebCrypto) veya tarayıcıda çalışır. C aracı ve Python paketiyle
+// birebir uyumludur (tests/data/record_vectors.json).
+export const RECORD_PREFIX = "bb416r1:", RECORD_KEY_PREFIX = "bb416k1:";
+export const RECORD_TOKEN_RE = /bb416r1:[A-Za-z0-9_-]+/g;
+const RECORD_FORMAT = 0xb3, REC_HEADER = 21, REC_TAG = 16, REC_OVERHEAD = 37;
+const RECORD_INFO = new TextEncoder().encode("BicBic416 kayit v1");
+
+const b64uEncode = (b) => toBase64(b).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function b64uDecode(s) {
+  if (s.length % 4 === 1 || !/^[A-Za-z0-9_-]*$/.test(s)) throw new Error("BicBic416 kaydı değil veya eksik kopyalanmış");
+  const b = fromBase64(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
+  if (b64uEncode(b) !== s) throw new Error("BicBic416 kaydı değil veya eksik kopyalanmış"); // kanonik değil
+  return b;
+}
+const asBytes = (x) => (typeof x === "string" ? new TextEncoder().encode(x) : new Uint8Array(x));
+
+export function generateRecordKey() {
+  return RECORD_KEY_PREFIX + b64uEncode(globalThis.crypto.getRandomValues(new Uint8Array(32)));
+}
+
+export function parseRecordKey(text) {
+  if (typeof text !== "string" || !text.startsWith(RECORD_KEY_PREFIX) || text.length !== 8 + 43)
+    throw new Error('geçersiz anahtar: "bb416k1:" ile başlamalı (üretmek için: generateRecordKey())');
+  return b64uDecode(text.slice(8));
+}
+
+async function deriveRecordKey(master) {
+  const hk = await subtle.importKey("raw", master, "HKDF", false, ["deriveBits"]);
+  const dk = new Uint8Array(await subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: RECORD_INFO }, hk, 120 * 8));
+  const key = {
+    bb: init(dk.slice(0, 52), 16),
+    mac: await hmacKey(dk.slice(52, 84)),
+    cc: await hmacKey(dk.slice(84, 116)),
+    kid: dk.slice(116, 120),
+  };
+  dk.fill(0);
+  return key;
+}
+
+const kidHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+
+export class RecordCipher {
+  // keys: "bb416k1:..." veya liste. İlk anahtar şifreler; hepsi açmak için denenir (anahtar değiştirme).
+  static async create(keys) {
+    const list = (Array.isArray(keys) ? keys : [keys]).map((k) => k.trim()).filter(Boolean);
+    if (!list.length) throw new Error("en az bir anahtar gerekli");
+    const rc = new RecordCipher();
+    rc.keys = await Promise.all(list.map((k) => deriveRecordKey(parseRecordKey(k))));
+    rc.byKid = new Map(rc.keys.slice().reverse().map((k) => [kidHex(k.kid), k]));
+    return rc;
+  }
+
+  get keyId() { return kidHex(this.keys[0].kid); }
+
+  static async #layers(k, nonce, data) {
+    const nonce44 = new Uint8Array(NONCE);
+    nonce44.set(nonce);
+    const ct = ctrXor(k.bb, nonce44, 0, data);
+    const rk = new Uint8Array(await subtle.sign("HMAC", k.cc, nonce));
+    return chacha20Xor(rk, new Uint8Array(12), 0, ct);
+  }
+
+  static async #tag(k, aad, rec) {
+    const buf = new Uint8Array(8 + aad.length + rec.length);
+    new DataView(buf.buffer).setBigUint64(0, BigInt(aad.length), true);
+    buf.set(aad, 8);
+    buf.set(rec, 8 + aad.length);
+    return new Uint8Array(await subtle.sign("HMAC", k.mac, buf)).subarray(0, REC_TAG);
+  }
+
+  // options.nonce yalnızca testler içindir; gerçek kullanımda her kayıtta rastgele üretilir.
+  async encrypt(message, aad = "", options = {}) {
+    const k = this.keys[0], msg = asBytes(message), ad = asBytes(aad);
+    const nonce = options.nonce ? asBytes(options.nonce) : globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const rec = new Uint8Array(REC_OVERHEAD + msg.length);
+    rec[0] = RECORD_FORMAT;
+    rec.set(k.kid, 1);
+    rec.set(nonce, 5);
+    rec.set(await RecordCipher.#layers(k, nonce, msg), REC_HEADER);
+    rec.set(await RecordCipher.#tag(k, ad, rec.subarray(0, REC_HEADER + msg.length)), REC_HEADER + msg.length);
+    return RECORD_PREFIX + b64uEncode(rec);
+  }
+
+  async decryptBytes(token, aad = "") {
+    token = token.trim();
+    if (!token.startsWith(RECORD_PREFIX)) throw new Error("BicBic416 kaydı değil veya eksik kopyalanmış");
+    const rec = b64uDecode(token.slice(8));
+    if (rec.length < REC_OVERHEAD || rec[0] !== RECORD_FORMAT) throw new Error("BicBic416 kaydı değil veya eksik kopyalanmış");
+    const k = this.byKid.get(kidHex(rec.subarray(1, 5)));
+    if (!k) throw new Error("kayıt, verilen anahtarlardan hiçbiriyle şifrelenmemiş");
+    const body = rec.subarray(0, rec.length - REC_TAG), tag = rec.subarray(rec.length - REC_TAG);
+    const expect = await RecordCipher.#tag(k, asBytes(aad), body);
+    let diff = 0;
+    for (let i = 0; i < REC_TAG; i++) diff |= expect[i] ^ tag[i];
+    if (diff) throw new Error("mühür tutmuyor: kayıt veya ek bilgi değiştirilmiş");
+    return RecordCipher.#layers(k, rec.slice(5, REC_HEADER), body.subarray(REC_HEADER));
+  }
+
+  async decrypt(token, aad = "") {
+    return new TextDecoder().decode(await this.decryptBytes(token, aad));
+  }
+
+  async encryptFields(obj, fields) {
+    const out = { ...obj };
+    for (const f of fields) if (out[f] != null) out[f] = await this.encrypt(String(out[f]));
+    return out;
+  }
+
+  async decryptFields(obj) {
+    const out = { ...obj };
+    for (const [f, v] of Object.entries(out))
+      if (typeof v === "string" && v.startsWith(RECORD_PREFIX)) out[f] = await this.decrypt(v);
+    return out;
+  }
+
+  // Satırdaki tüm kayıtları yerinde açar; açılamayanların yerine onError yazılır (null: hata fırlat).
+  async decryptLine(line, onError = "[ÇÖZÜLEMEDİ]") {
+    let out = "", last = 0;
+    for (const m of line.matchAll(RECORD_TOKEN_RE)) {
+      out += line.slice(last, m.index);
+      try { out += await this.decrypt(m[0]); }
+      catch (e) { if (onError === null) throw e; out += onError; }
+      last = m.index + m[0].length;
+    }
+    return out + line.slice(last);
+  }
+}
