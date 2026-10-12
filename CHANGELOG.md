@@ -3,6 +3,17 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr-TR/1.1.0/) kurallarını,
 sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarını izler.
 
+## [0.3.1] — 2026-10-13
+
+### Düzeltilenler
+
+- **Tanımsız davranış:** Ek bilgisi (aad) olmayan bir log kaydı mühürlenirken SHA-256'ya
+  boş girdi olarak NULL işaretçi veriliyordu ve bu `memcpy`'ye ulaşıyordu. Uzunluk sıfır
+  olsa bile bu, C standardına göre tanımsız davranıştır. Linux'taki UBSan (CI) yakaladı;
+  Windows başlıklarında ilgili işaret olmadığı için yerel testlerde görünmedi.
+  `sha256_update` boş girdide hemen dönüyor, `hmac_sha256_init` de sıfır uzunluklu
+  anahtarı kopyalamıyor. Çıktılar değişmedi.
+
 ## [0.3.0] — 2026-10-13
 
 ### Eklenenler

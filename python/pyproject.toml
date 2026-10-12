@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bicbic416"
-version = "0.3.0"
+version = "0.3.1"
 description = "Deneysel BicBic416 şifresiyle iki katmanlı (BicBic416 + ChaCha20) log kaydı şifreleme ve BicBic-Hash"
 readme = "README.md"
 requires-python = ">=3.9"

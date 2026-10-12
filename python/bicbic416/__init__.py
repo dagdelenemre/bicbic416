@@ -21,7 +21,7 @@ from .log import EncryptingFormatter, FieldEncryptingFilter
 from .record import (KEY_PREFIX, TEXT_PREFIX, TOKEN_RE, DecryptionError, RecordCipher,
                      generate_key, parse_key)
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __all__ = [
     "RecordCipher", "DecryptionError", "EncryptingFormatter", "FieldEncryptingFilter",
     "generate_key", "parse_key", "hash", "hash_hex", "backend", "KEY_PREFIX", "TEXT_PREFIX", "TOKEN_RE",
