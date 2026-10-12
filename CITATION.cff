@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "Bu yazılımı bir çalışmada kullanırsanız lütfen aşağıdaki bilgilerle atıf yapın."
+title: "BicBic416: deneysel 416-bit blok şifre"
+abstract: >-
+  BicBic416, eğitim ve araştırma amaçlı, deneysel bir 416-bit blok şifredir.
+  Projede şunlar bulunur: taşınabilir C11 uygulaması, CTR modu, 416-bit
+  BicBic-Hash, isteğe bağlı iki katmanlı (BicBic416 + ChaCha20) şifreleme,
+  log kaydı şifreleme biçimi (Python, Node.js ve komut satırı entegrasyonuyla),
+  bağımsız Python referans uygulaması ve azaltılmış tur kriptanaliz raporu.
+  Bağımsız bir uzman incelemesinden geçmemiştir; gerçek verileri korumak için
+  kullanılmamalıdır.
+type: software
+authors:
+  - family-names: "Dağdelen"
+    given-names: "Emre Kadir"
+repository-code: "https://github.com/dagdelenemre/bicbic416"
+url: "https://bicbic416.vercel.app"
+license: MIT
+version: "0.3.1"
+date-released: "2026-10-13"
+keywords:
+  - cryptography
+  - block cipher
+  - cryptanalysis
+  - ChaCha20
+  - log encryption
+  - educational

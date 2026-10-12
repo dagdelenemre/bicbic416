@@ -1,0 +1,50 @@
+name: Hata bildirimi
+description: Bir hata veya beklenmeyen davranış bildirin
+title: "[Hata]: "
+labels: ["hata"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Teşekkürler! **Güvenlik açığıysa** (bellek hatası, mühür atlatma vb.) lütfen herkese açık
+        issue yerine [özel güvenlik bildirimi](https://github.com/dagdelenemre/bicbic416/security/advisories/new) kullanın.
+        **Anahtar, parola veya şifresi çözülmüş log paylaşmayın.**
+  - type: dropdown
+    id: bilesen
+    attributes:
+      label: Bileşen
+      options:
+        - C kütüphanesi / şifre
+        - bicbic komut satırı aracı
+        - Python paketi (bicbic416)
+        - JavaScript / web sitesi
+        - Belgeler
+        - Derleme / CI
+    validations:
+      required: true
+  - type: textarea
+    id: ne-oldu
+    attributes:
+      label: Ne oldu, ne bekliyordunuz?
+    validations:
+      required: true
+  - type: textarea
+    id: adimlar
+    attributes:
+      label: Yeniden üretme adımları
+      description: Komutlar, kod parçası veya test girdisi
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: surum
+    attributes:
+      label: Sürüm
+      placeholder: "ör. v0.3.1 veya commit"
+    validations:
+      required: true
+  - type: input
+    id: ortam
+    attributes:
+      label: Ortam
+      placeholder: "ör. Windows 11, GCC 16.2 / Ubuntu 24.04, Python 3.12 / Node 22"

@@ -1,0 +1,22 @@
+name: Özellik isteği
+description: Yeni bir özellik veya iyileştirme önerin
+title: "[Öneri]: "
+labels: ["öneri"]
+body:
+  - type: textarea
+    id: sorun
+    attributes:
+      label: Hangi sorunu çözüyor?
+      description: Ör. "Loglarımı PHP ile şifrelemek istiyorum ama..."
+    validations:
+      required: true
+  - type: textarea
+    id: oneri
+    attributes:
+      label: Önerilen çözüm
+    validations:
+      required: true
+  - type: textarea
+    id: alternatif
+    attributes:
+      label: Düşünülen alternatifler

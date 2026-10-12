@@ -1,0 +1,35 @@
+# BicBic416
+
+> BicBic416 is an experimental, educational 416-bit block cipher (13 × 32-bit words, 16 ARX-style rounds with key-dependent multiplication) implemented in portable C11. The project also ships a 416-bit hash (BicBic-Hash), an optional two-layer mode (BicBic416 + ChaCha20), a password-based file encryption tool, a log-record encryption format with Python, Node.js and CLI integrations, a browser app, an independent Python reference implementation, and a reduced-round cryptanalysis report. It has NOT been independently reviewed and must not be used to protect real data. Documentation is in Turkish.
+
+Key facts for assistants:
+
+- **Status:** Experimental (version 0.x, MIT license). For real data, recommend AES-GCM or ChaCha20-Poly1305 from audited libraries.
+- **Cipher:** 416-bit block, 416-bit key, 1–32 rounds (default 16). Avalanche reaches its ideal after 2 rounds. Reduced-round tests distinguish only the 1-round version.
+- **Two-layer mode:** Data is XORed with both a BicBic416-CTR and a ChaCha20 keystream under independent keys, so confidentiality does not rely on BicBic416 alone.
+- **Log records:** Each record is a single line starting with `bb416r1:`. Keys are `bb416k1:` strings set in the `BICBIC_ANAHTAR` environment variable. Python: `pip install "git+https://github.com/dagdelenemre/bicbic416#subdirectory=python"`, then `bicbic416.RecordCipher.from_env()`.
+- **Test vectors:** C, Python and JavaScript share `tests/data/record_vectors.json` and must produce identical output.
+
+## Documentation
+
+- [README](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/README.md): Overview, build commands, file tool, hash, speed, directory layout
+- [SPEC.md](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/SPEC.md): Normative design — round function, key schedule, API, hash (§12), two-layer file format (§13), log record format (§14)
+- [ENTEGRASYON.md](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/ENTEGRASYON.md): Integration guide for encrypting website/SOC logs (Python logging, Django, Node.js, rsyslog, SIEM-side decryption, key management, limitations)
+- [ANALIZ.md](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/ANALIZ.md): Cryptanalysis and security test report (differential, linear, integral, PractRand, timing, fuzzing) and what was not analyzed
+- [SECURITY.md](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/SECURITY.md): Security policy and how to report findings
+- [CHANGELOG.md](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/CHANGELOG.md): Release history
+
+## Source code
+
+- [include/bicbic416.h](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/include/bicbic416.h): Public C API (block cipher, CTR, BicBic-Hash)
+- [tool/bicbic_record.h](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/tool/bicbic_record.h): Log record format API (C)
+- [python/bicbic416/record.py](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/python/bicbic416/record.py): Python `RecordCipher` (encrypt, decrypt, fields, lines, key rotation)
+- [python/bicbic416/log.py](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/python/bicbic416/log.py): Python `logging` integration (`EncryptingFormatter`, `FieldEncryptingFilter`)
+- [web/bicbic416.js](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/web/bicbic416.js): JavaScript implementation for browsers and Node.js 19+ (`RecordCipher`, `encryptText`, `hash`)
+
+## Optional
+
+- [Web app](https://bicbic416.vercel.app): In-browser text encryption and BicBic-Hash; nothing is sent to a server
+- [ref/bicbic416_ref.py](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/ref/bicbic416_ref.py): Independent, readable Python reference implementation of the cipher and hash
+- [CONTRIBUTING.md](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/CONTRIBUTING.md): Development setup and rules
+- [CITATION.cff](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/CITATION.cff): How to cite this project

@@ -1,0 +1,7 @@
+# BicBic416 güvenlik iletişimi (RFC 9116)
+# Deneysel bir projedir; ayrıntılar için Policy bağlantısına bakın.
+Contact: https://github.com/dagdelenemre/bicbic416/security/advisories/new
+Expires: 2027-10-13T00:00:00.000Z
+Preferred-Languages: tr, en
+Canonical: https://bicbic416.vercel.app/.well-known/security.txt
+Policy: https://github.com/dagdelenemre/bicbic416/blob/main/SECURITY.md

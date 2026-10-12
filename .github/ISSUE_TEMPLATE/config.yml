@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Güvenlik açığı bildir (özel)
+    url: https://github.com/dagdelenemre/bicbic416/security/advisories/new
+    about: Araçta veya biçimlerde bir güvenlik açığı bulduysanız herkese açık issue yerine bunu kullanın.
+  - name: Entegrasyon rehberi
+    url: https://github.com/dagdelenemre/bicbic416/blob/main/ENTEGRASYON.md
+    about: Web sitesi ve SOC loglarını şifreleme hakkındaki sorular için önce rehbere bakın.

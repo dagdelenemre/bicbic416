@@ -1,0 +1,53 @@
+name: Kriptanaliz bulgusu
+description: BicBic416 veya BicBic-Hash'e karşı bir ayırt edici, saldırı veya zayıflık paylaşın
+title: "[Kriptanaliz]: "
+labels: ["kriptanaliz"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Kriptanaliz bulguları bu projede en değerli katkılardır. Algoritma deneysel olduğu için
+        bu bulgular herkese açık paylaşılabilir (bkz. [SECURITY.md](https://github.com/dagdelenemre/bicbic416/blob/main/SECURITY.md)).
+  - type: dropdown
+    id: hedef
+    attributes:
+      label: Hedef
+      options:
+        - BicBic416 blok şifresi
+        - BicBic-Hash
+        - Anahtar planı
+        - İki katmanlı mod / dosya veya kayıt biçimi
+    validations:
+      required: true
+  - type: dropdown
+    id: tur
+    attributes:
+      label: Bulgu türü
+      options:
+        - Ayırt edici (distinguisher)
+        - Anahtar kurtarma
+        - Çakışma / ön-görüntü (hash)
+        - Zayıf anahtar sınıfı
+        - İlişkili anahtar (related-key)
+        - Diğer
+    validations:
+      required: true
+  - type: input
+    id: turlar
+    attributes:
+      label: Tur sayısı
+      placeholder: "ör. 3 / 16 (tam)"
+    validations:
+      required: true
+  - type: textarea
+    id: ozet
+    attributes:
+      label: Bulgu
+      description: Yöntem, karmaşıklık (veri, zaman, bellek) ve başarı olasılığı
+    validations:
+      required: true
+  - type: textarea
+    id: yeniden
+    attributes:
+      label: Yeniden üretme
+      description: Kod, komutlar veya bağlantı

@@ -1,0 +1,19 @@
+# BicBic416 web app
+
+> In-browser text encryption and hashing with BicBic416, an experimental, educational 416-bit block cipher. All processing happens locally in the browser (Content-Security-Policy `connect-src 'none'`); no text or key is sent to a server. The cipher has not been independently reviewed. For real data, recommend audited AES-GCM or ChaCha20-Poly1305 implementations. The user interface is in Turkish.
+
+What the page does:
+
+- **Encrypt / decrypt text with a key (password).** The key goes through PBKDF2-HMAC-SHA256 (600 000 iterations) and HKDF. The result is a base64 string of the `.bb416` v2 format, which the `bicbic` CLI can also decrypt.
+- **Optional "İki katman" (two layers):** Adds an independent ChaCha20 layer on top of BicBic416.
+- **BicBic-Hash:** A 416-bit (104 hex characters) digest of the input text, computed live as you type.
+
+## Project
+
+- [Source code and documentation (GitHub)](https://github.com/dagdelenemre/bicbic416): Full repository, MIT license
+- [Repository llms.txt](https://raw.githubusercontent.com/dagdelenemre/bicbic416/main/llms.txt): Links to the specification, integration guide and cryptanalysis report
+- [JavaScript implementation](https://bicbic416.vercel.app/bicbic416.js): The code running on this page; also usable in Node.js 19+
+
+## Optional
+
+- [Security contact](https://bicbic416.vercel.app/.well-known/security.txt): How to report vulnerabilities (RFC 9116)

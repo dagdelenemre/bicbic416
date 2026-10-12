@@ -260,6 +260,16 @@ Bu senaryoda her log kaydı ayrı ayrı şifrelenip HMAC ile mühürleniyor
 Tipik bir SOC/SIEM saniyede 1 000–100 000 olay işler. Burada zamanın yaklaşık %80'ini
 HMAC-SHA256 alıyor, şifrenin kendisi değil.
 
+## Katkı ve topluluk
+
+- **Katkı:** [CONTRIBUTING.md](CONTRIBUTING.md) — geliştirme ortamı, kurallar ve kontrol listesi
+- **Davranış kuralları:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Güvenlik bildirimi:** [SECURITY.md](SECURITY.md); web sitesi için
+  [security.txt](https://bicbic416.vercel.app/.well-known/security.txt)
+- **Destek:** [SUPPORT.md](SUPPORT.md)
+- **Atıf:** [CITATION.cff](CITATION.cff) (GitHub'daki "Cite this repository" düğmesi)
+- **Yapay zekâ araçları için özet:** [llms.txt](llms.txt) ([llmstxt.org](https://llmstxt.org) biçimi)
+
 ## Dizin yapısı
 
 ```
@@ -274,4 +284,5 @@ ref/bicbic416_ref.py    bağımsız Python referans uygulaması
 python/                 Python paketi (bicbic416): log kayıtları, logging entegrasyonu, hash
 web/                    tarayıcı sayfası ve Node.js'te de çalışan JS uygulaması
 ENTEGRASYON.md          log şifreleme entegrasyon rehberi
+llms.txt                yapay zekâ araçları için proje özeti (llmstxt.org)
 ```

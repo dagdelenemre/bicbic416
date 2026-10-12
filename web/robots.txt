@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://bicbic416.vercel.app/sitemap.xml
